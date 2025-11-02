@@ -4,7 +4,7 @@ const axios = require("axios");
 const WebSocketClient = require("ws");
 const express = require("express");
 const bodyParser = require("body-parser");
-const GameLogic = require("./game-logic.js");
+const CompleteGameLogic = require("./game-logic-complete.js");
 process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
 
 // Headless mode support
@@ -161,8 +161,8 @@ function createWebSocketConnection(wsNumber, recoveryCode) {
   
   appState.websockets[wsKey] = ws;
   
-  // Create GameLogic instance for this connection
-  appState.gameLogic[logicKey] = new GameLogic(wsNumber, appState.config, addLog);
+  // Create CompleteGameLogic instance for this connection
+  appState.gameLogic[logicKey] = new CompleteGameLogic(wsNumber, appState.config, addLog);
   const gameLogic = appState.gameLogic[logicKey];
   
   // Store haaapsi value for this connection (CRITICAL!)
@@ -200,6 +200,13 @@ function createWebSocketConnection(wsNumber, recoveryCode) {
       const password = snippets[2];
       const username = snippets[3].split("\r\n")[0];
       const temp = parseHaaapsi(savedHaaapsi); // Use saved haaapsi from HAAAPSI message!
+      
+      // Save to game logic
+      gameLogic.id = id;
+      gameLogic.useridg = id;
+      gameLogic.passwordg = password;
+      gameLogic.finalusername = username;
+      
       ws.send(`USER ${id} ${password} ${username} ${temp}\r\n`);
       addLog(wsNumber, `Registered as: ${username}`);
     }
