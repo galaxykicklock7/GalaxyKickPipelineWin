@@ -176,11 +176,89 @@ const connectionRetries = {
   ws5: { count: 0, maxRetries: 5, backoff: 1000 }
 };
 
+// Connection pool for code rotation (main <-> alternate)
+const connectionPool = {
+  ws1: { useMain: true, mainCode: null, altCode: null },
+  ws2: { useMain: true, mainCode: null, altCode: null },
+  ws3: { useMain: true, mainCode: null, altCode: null },
+  ws4: { useMain: true, mainCode: null, altCode: null }
+};
+
+// Initialize connection pool with configured codes
+function initializeConnectionPool() {
+  connectionPool.ws1.mainCode = appState.config.rc1 || null;
+  connectionPool.ws1.altCode = appState.config.rcl1 || null;
+  
+  connectionPool.ws2.mainCode = appState.config.rc2 || null;
+  connectionPool.ws2.altCode = appState.config.rcl2 || null;
+  
+  connectionPool.ws3.mainCode = appState.config.rc3 || null;
+  connectionPool.ws3.altCode = appState.config.rcl3 || null;
+  
+  connectionPool.ws4.mainCode = appState.config.rc4 || null;
+  connectionPool.ws4.altCode = appState.config.rcl4 || null;
+  
+  console.log('🔄 Connection pool initialized:');
+  console.log(`  WS1: Main=${!!connectionPool.ws1.mainCode}, Alt=${!!connectionPool.ws1.altCode}`);
+  console.log(`  WS2: Main=${!!connectionPool.ws2.mainCode}, Alt=${!!connectionPool.ws2.altCode}`);
+  console.log(`  WS3: Main=${!!connectionPool.ws3.mainCode}, Alt=${!!connectionPool.ws3.altCode}`);
+  console.log(`  WS4: Main=${!!connectionPool.ws4.mainCode}, Alt=${!!connectionPool.ws4.altCode}`);
+}
+
+// Get current code for wsNumber (rotates between main and alternate)
+function getCurrentCode(wsNumber) {
+  if (wsNumber === 5) {
+    return appState.config.kickrc; // Kick code has no alternate
+  }
+  
+  const wsKey = `ws${wsNumber}`;
+  const pool = connectionPool[wsKey];
+  
+  if (!pool) return null;
+  
+  // If both codes exist, alternate between them
+  if (pool.mainCode && pool.altCode) {
+    const code = pool.useMain ? pool.mainCode : pool.altCode;
+    const codeType = pool.useMain ? 'Main' : 'Alt';
+    console.log(`🔄 WS${wsNumber} using ${codeType} code`);
+    return code;
+  }
+  
+  // If only one code exists, use it
+  return pool.mainCode || pool.altCode;
+}
+
+// Rotate to next code (main -> alt or alt -> main)
+function rotateCode(wsNumber) {
+  if (wsNumber === 5) return; // Kick code has no rotation
+  
+  const wsKey = `ws${wsNumber}`;
+  const pool = connectionPool[wsKey];
+  
+  if (!pool) return;
+  
+  // Only rotate if both codes are available
+  if (pool.mainCode && pool.altCode) {
+    pool.useMain = !pool.useMain;
+    const newType = pool.useMain ? 'Main' : 'Alt';
+    addLog(wsNumber, `🔄 Rotated to ${newType} code for next connection`);
+  }
+}
+
 // Function to create WebSocket connection with retry logic
-function createWebSocketConnection(wsNumber, recoveryCode, isRetry = false) {
+function createWebSocketConnection(wsNumber, recoveryCode = null, isRetry = false) {
   const wsKey = `ws${wsNumber}`;
   const logicKey = `logic${wsNumber}`;
   const retryState = connectionRetries[wsKey];
+  
+  // Get code from pool if not provided
+  if (!recoveryCode) {
+    recoveryCode = getCurrentCode(wsNumber);
+    if (!recoveryCode) {
+      addLog(wsNumber, `❌ No recovery code available for WS${wsNumber}`);
+      return;
+    }
+  }
   
   // Check if we've exceeded max retries
   if (isRetry && retryState.count >= retryState.maxRetries) {
@@ -193,7 +271,12 @@ function createWebSocketConnection(wsNumber, recoveryCode, isRetry = false) {
     retryState.count++;
     const delay = Math.min(retryState.backoff * Math.pow(2, retryState.count - 1), 30000); // Max 30s
     addLog(wsNumber, `🔄 Retry attempt ${retryState.count}/${retryState.maxRetries} in ${delay}ms...`);
-    setTimeout(() => createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState), delay);
+    
+    // Rotate code on retry
+    rotateCode(wsNumber);
+    const nextCode = getCurrentCode(wsNumber);
+    
+    setTimeout(() => createWebSocketConnectionInternal(wsNumber, nextCode, retryState), delay);
   } else {
     retryState.count = 0; // Reset retry counter for new connection
     createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState);
@@ -213,12 +296,21 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
   };
   
   const reconnectCallback = (wsNum) => {
-    // Auto-reconnect logic
+    // Auto-reconnect logic with code rotation
     const wsKey = `ws${wsNum}`;
-    const code = appState.config[`rc${wsNum}`] || appState.config[`rcl${wsNum}`];
-    if (code && !appState.wsStatus[wsKey]) {
+    if (!appState.wsStatus[wsKey]) {
       addLog(wsNum, `🔄 Auto-reconnecting WS${wsNum}...`);
-      createWebSocketConnection(wsNum, code, false); // Not a retry, new cycle
+      
+      // Rotate to next code before reconnecting
+      rotateCode(wsNum);
+      
+      // Get the next code from pool
+      const nextCode = getCurrentCode(wsNum);
+      if (nextCode) {
+        createWebSocketConnection(wsNum, nextCode, false); // Not a retry, new cycle
+      } else {
+        addLog(wsNum, `❌ No code available for reconnection`);
+      }
     }
   };
   
@@ -398,6 +490,9 @@ function addLog(wsNumber, message) {
 function connectAll() {
   let connected = 0;
   
+  // Initialize connection pool with current config
+  initializeConnectionPool();
+  
   // Send analytics to Discord (optional - from bestscript.js line 217-219)
   try {
     // Create temporary game logic instance just for sendNick
@@ -409,30 +504,31 @@ function connectAll() {
     // Analytics is optional - continue if it fails
   }
   
+  // Connect WS1 (uses pool to get rc1 or rcl1)
   if (appState.config.rc1 || appState.config.rcl1) {
-    const code = appState.config.rc1 || appState.config.rcl1;
-    createWebSocketConnection(1, code);
+    createWebSocketConnection(1); // Code will be fetched from pool
     connected++;
   }
   
+  // Connect WS2 (uses pool to get rc2 or rcl2)
   if (appState.config.rc2 || appState.config.rcl2) {
-    const code = appState.config.rc2 || appState.config.rcl2;
-    createWebSocketConnection(2, code);
+    createWebSocketConnection(2); // Code will be fetched from pool
     connected++;
   }
   
+  // Connect WS3 (uses pool to get rc3 or rcl3)
   if (appState.config.rc3 || appState.config.rcl3) {
-    const code = appState.config.rc3 || appState.config.rcl3;
-    createWebSocketConnection(3, code);
+    createWebSocketConnection(3); // Code will be fetched from pool
     connected++;
   }
   
+  // Connect WS4 (uses pool to get rc4 or rcl4)
   if (appState.config.rc4 || appState.config.rcl4) {
-    const code = appState.config.rc4 || appState.config.rcl4;
-    createWebSocketConnection(4, code);
+    createWebSocketConnection(4); // Code will be fetched from pool
     connected++;
   }
   
+  // Connect WS5 (kick code - no alternation)
   if (appState.config.kickrc) {
     createWebSocketConnection(5, appState.config.kickrc);
     connected++;
@@ -517,10 +613,35 @@ apiServer.get('/api/status', (req, res) => {
     ws5: { retries: connectionRetries.ws5.count, maxRetries: connectionRetries.ws5.maxRetries }
   };
   
+  // Get connection pool status
+  const poolStatus = {
+    ws1: { 
+      hasMain: !!connectionPool.ws1?.mainCode, 
+      hasAlt: !!connectionPool.ws1?.altCode, 
+      usingMain: connectionPool.ws1?.useMain 
+    },
+    ws2: { 
+      hasMain: !!connectionPool.ws2?.mainCode, 
+      hasAlt: !!connectionPool.ws2?.altCode, 
+      usingMain: connectionPool.ws2?.useMain 
+    },
+    ws3: { 
+      hasMain: !!connectionPool.ws3?.mainCode, 
+      hasAlt: !!connectionPool.ws3?.altCode, 
+      usingMain: connectionPool.ws3?.useMain 
+    },
+    ws4: { 
+      hasMain: !!connectionPool.ws4?.mainCode, 
+      hasAlt: !!connectionPool.ws4?.altCode, 
+      usingMain: connectionPool.ws4?.useMain 
+    }
+  };
+  
   res.json({
     connected: appState.connected,
     websockets: appState.wsStatus,
     retryStatus: retryStatus, // Show retry attempts
+    poolStatus: poolStatus, // Show which code is active
     gameStates: gameStates, // Include game state (targets, etc.)
     config: {
       ...appState.config,
@@ -555,11 +676,14 @@ apiServer.post('/api/configure', (req, res) => {
       }
     });
     
+    // Reinitialize connection pool with new codes
+    initializeConnectionPool();
+    
     console.log('Configuration updated:', config);
     
     res.json({
       success: true,
-      message: 'Configuration updated',
+      message: 'Configuration updated (connection pool reinitialized)',
       config: appState.config
     });
   } catch (error) {
