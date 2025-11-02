@@ -120,9 +120,47 @@ function createWebSocketConnection(wsNumber, recoveryCode) {
       addLog(wsNumber, `Successfully joined game`);
     }
     
-    // Log all messages in headless mode
+    // Handle PING - CRITICAL! Must respond or server disconnects
+    if (snippets[0] === "PING\r\n" || text.trim() === "PING") {
+      ws.send("PONG\r\n");
+      if (HEADLESS_MODE) {
+        console.log(`[WS${wsNumber}] PING received, sent PONG`);
+      }
+    }
+    
+    // Handle JOIN responses (user joined channel)
+    if (snippets[0] === "JOIN") {
+      addLog(wsNumber, `Joined channel: ${snippets[1] || 'unknown'}`);
+    }
+    
+    // Handle 353 (channel user list)
+    if (snippets[0] === "353") {
+      addLog(wsNumber, `User list received for channel: ${snippets[3]}`);
+    }
+    
+    // Handle 471 (channel full or error)
+    if (snippets[0] === "471") {
+      addLog(wsNumber, `Error 471: ${text}`);
+    }
+    
+    // Handle QUIT (connection closing)
+    if (snippets[0] === "QUIT") {
+      addLog(wsNumber, `Server sent QUIT: ${text}`);
+    }
+    
+    // Handle 850 (status message)
+    if (snippets[0] === "850") {
+      addLog(wsNumber, `Status: ${text.substring(0, 50)}`);
+    }
+    
+    // Handle 452 (sign/authentication message)
+    if (snippets[0] === "452") {
+      addLog(wsNumber, `Auth message: ${text.substring(0, 50)}`);
+    }
+    
+    // Log all messages in headless mode for debugging
     if (HEADLESS_MODE) {
-      console.log(`[WS${wsNumber}] ${text.substring(0, 100)}${text.length > 100 ? '...' : ''}`);
+      console.log(`[WS${wsNumber}] ${text.substring(0, 150)}${text.length > 150 ? '...' : ''}`);
     }
   });
 
