@@ -67,7 +67,21 @@ let appState = {
     waiting1: 1910,
     waiting2: 1910,
     waiting3: 1910,
-    waiting4: 1910
+    waiting4: 1910,
+    // Timer shift settings
+    timershift: false,
+    incrementvalue: 10,
+    decrementvalue: 10,
+    minatk: 1000,
+    maxatk: 3000,
+    mindef: 1000,
+    maxdef: 3000,
+    // Additional modes
+    modena: false,
+    kickbybl: false,
+    dadplus: false,
+    kickall: false,
+    reconnect: 5000
   },
   logs: {
     log1: [],
