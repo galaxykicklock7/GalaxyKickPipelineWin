@@ -244,7 +244,32 @@ function connectAll() {
 function disconnectAll() {
   Object.keys(appState.websockets).forEach(wsKey => {
     if (appState.websockets[wsKey]) {
-      appState.websockets[wsKey].close();
+      const ws = appState.websockets[wsKey];
+      
+      // Send QUIT command to server before closing (graceful disconnect)
+      try {
+        if (ws.readyState === ws.OPEN) {
+          ws.send("QUIT :ds\r\n");
+          console.log(`Sent QUIT command to ${wsKey}`);
+          
+          // Add to logs
+          const wsNumber = parseInt(wsKey.replace('ws', ''));
+          addLog(wsNumber, 'Sent QUIT command to server');
+        }
+      } catch (error) {
+        console.error(`Error sending QUIT to ${wsKey}:`, error);
+      }
+      
+      // Wait a moment for QUIT to be sent, then close
+      setTimeout(() => {
+        try {
+          ws.close();
+          console.log(`Closed ${wsKey}`);
+        } catch (error) {
+          console.error(`Error closing ${wsKey}:`, error);
+        }
+      }, 100);
+      
       appState.websockets[wsKey] = null;
       appState.wsStatus[wsKey] = false;
     }
