@@ -4,7 +4,7 @@ const axios = require("axios");
 const WebSocketClient = require("ws");
 const express = require("express");
 const bodyParser = require("body-parser");
-const CompleteGameLogic = require("./game-logic-complete.js");
+const FinalCompleteGameLogic = require("./game-logic-final.js");
 process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
 
 // Headless mode support
@@ -175,8 +175,12 @@ function createWebSocketConnection(wsNumber, recoveryCode) {
   
   appState.websockets[wsKey] = ws;
   
-  // Create CompleteGameLogic instance for this connection
-  appState.gameLogic[logicKey] = new CompleteGameLogic(wsNumber, appState.config, addLog);
+  // Create FinalCompleteGameLogic instance for this connection with config update callback
+  const updateConfigCallback = (key, value) => {
+    appState.config[key] = value;
+  };
+  
+  appState.gameLogic[logicKey] = new FinalCompleteGameLogic(wsNumber, appState.config, addLog, updateConfigCallback);
   const gameLogic = appState.gameLogic[logicKey];
   
   // Store haaapsi value for this connection (CRITICAL!)
