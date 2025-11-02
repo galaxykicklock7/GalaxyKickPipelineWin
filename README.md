@@ -1,272 +1,295 @@
-# BEST Backend - GitHub Actions Deployment
+# BEST Headless Backend
 
-This is the backend version of BEST that runs on GitHub Actions with API access via Cloudflare Tunnel.
+Run BEST game automation on GitHub Codespaces or GitHub Actions with HTTP API control.
 
-## 🚀 Quick Start
+---
 
-### 1. Push to GitHub
+## 🚀 Quick Start - Test in Codespaces
 
+### **Step 1: Open Codespace**
+1. Go to: https://github.com/galaxykicklock7/GalaxyKickPipelineWin
+2. Click **Code** → **Codespaces** → **Create codespace on main**
+
+### **Step 2: Install System Dependencies**
 ```bash
-git init
-git add .
-git commit -m "Initial commit - BEST backend"
-git remote add origin https://github.com/YOUR_USERNAME/best-backend.git
-git branch -M main
-git push -u origin main
+sudo apt-get update && sudo apt-get install -y \
+  libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+  libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 \
+  libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 \
+  libcairo2 libatspi2.0-0 libgdk-pixbuf2.0-0 \
+  libgtk-3-0 xvfb
+
+# Install audio library (Ubuntu version detection)
+sudo apt-get install -y libasound2t64 || sudo apt-get install -y libasound2
 ```
 
-### 2. Run GitHub Actions
-
-1. Go to your repository on GitHub
-2. Click on **Actions** tab
-3. Click on **"BEST Headless Server with Cloudflare Tunnel"**
-4. Click **"Run workflow"**
-5. **Leave all inputs EMPTY** (configure via API later)
-6. Set **duration**: 360 (6 hours)
-7. Click **"Run workflow"**
-
-### 3. Get Tunnel URL
-
-1. Wait 30-60 seconds for workflow to start
-2. Click on the running workflow
-3. Click on **"Start Cloudflare Tunnel"** step
-4. Look for the URL in logs: `https://xxxxx-xxx-xxx.trycloudflare.com`
-5. **Copy this URL** - this is your backend API!
-
-### 4. Use the API
-
-**Test Health:**
+### **Step 3: Install Node Dependencies**
 ```bash
-curl https://xxxxx.trycloudflare.com/api/health
+cd resources/app
+npm install
 ```
 
-**Configure:**
+### **Step 4: Start BEST**
 ```bash
-curl -X POST https://xxxxx.trycloudflare.com/api/configure \
+# Start virtual display
+Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+export DISPLAY=:99
+
+# Start BEST in headless mode
+npm run headless
+```
+
+You should see:
+```
+🚀 BEST Headless API Server started on port 3000
+✅ Headless mode active
+```
+
+---
+
+## 📡 API Usage (Open New Terminal)
+
+### **1. Health Check**
+```bash
+curl http://localhost:3000/api/health
+```
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "mode": "headless",
+  "timestamp": "2025-11-02T16:00:00.000Z"
+}
+```
+
+### **2. Configure**
+```bash
+curl -X POST http://localhost:3000/api/configure \
   -H "Content-Type: application/json" \
   -d '{
-    "rc1": "YourCode1",
-    "rc2": "YourCode2",
-    "planet": "YourPlanet",
+    "rc1": "yourcode123",
+    "rc2": "",
+    "rc3": "",
+    "rc4": "",
+    "kickrc": "",
+    "rcl1": "",
+    "rcl2": "",
+    "rcl3": "",
+    "rcl4": "",
+    "planet": "THE_BOT",
     "device": "312",
-    "autorelease": true
+    "blacklist": "Enemy1\nEnemy2",
+    "gangblacklist": "[EVIL]",
+    "kblacklist": "",
+    "kgangblacklist": "",
+    "autorelease": true,
+    "exitting": true,
+    "sleeping": false,
+    "smart": false,
+    "lowsecmode": false,
+    "kickmode": true,
+    "modena": false,
+    "kickbybl": false,
+    "dadplus": false,
+    "kickall": false,
+    "attack1": 1940,
+    "attack2": 1940,
+    "attack3": 1940,
+    "attack4": 1940,
+    "waiting1": 1910,
+    "waiting2": 1910,
+    "waiting3": 1910,
+    "waiting4": 1910,
+    "timershift": false,
+    "incrementvalue": 10,
+    "decrementvalue": 10,
+    "minatk": 1000,
+    "maxatk": 3000,
+    "mindef": 1000,
+    "maxdef": 3000,
+    "reconnect": 5000
   }'
 ```
 
-**Connect:**
-```bash
-curl -X POST https://xxxxx.trycloudflare.com/api/connect \
-  -H "Content-Type: application/json"
-```
-
-**Check Status:**
-```bash
-curl https://xxxxx.trycloudflare.com/api/status
-```
-
-**Get Logs:**
-```bash
-curl https://xxxxx.trycloudflare.com/api/logs
-```
-
-**Disconnect:**
-```bash
-curl -X POST https://xxxxx.trycloudflare.com/api/disconnect \
-  -H "Content-Type: application/json"
-```
-
-## 📡 API Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/health` | Health check |
-| GET | `/api/status` | Get connection status and config |
-| GET | `/api/logs` | Get all WebSocket logs |
-| POST | `/api/configure` | Update configuration |
-| POST | `/api/connect` | Connect to game servers |
-| POST | `/api/disconnect` | Disconnect all connections |
-| POST | `/api/send` | Send custom command to WebSocket |
-
-## 🔧 Configuration Options
-
-All GUI settings are available via API:
-
+**Response:**
 ```json
 {
-  "rc1": "RecoveryCode1",
-  "rc2": "RecoveryCode2",
-  "rc3": "RecoveryCode3",
-  "rc4": "RecoveryCode4",
-  "kickrc": "KickCode",
-  "rcl1": "AltCode1",
-  "rcl2": "AltCode2",
-  "rcl3": "AltCode3",
-  "rcl4": "AltCode4",
-  "planet": "PlanetName",
-  "device": "312",
-  "autorelease": true,
-  "smart": true,
-  "lowsecmode": false,
-  "exitting": true,
-  "sleeping": false,
-  "kickmode": true,
-  "blacklist": "enemy1\nenemy2\nenemy3",
-  "gangblacklist": "clan1\nclan2\nclan3",
-  "kblacklist": "kickuser1\nkickuser2",
-  "kgangblacklist": "kickclan1\nkickclan2",
-  "attack1": 1940,
-  "attack2": 1940,
-  "attack3": 1940,
-  "attack4": 1940,
-  "waiting1": 1910,
-  "waiting2": 1910,
-  "waiting3": 1910,
-  "waiting4": 1910
+  "success": true,
+  "message": "Configuration updated",
+  "config": {...}
 }
 ```
 
-### Device Types
-- `"312"` - Android
-- `"323"` - iOS
-- `"352"` - Web
+**Important Notes:**
+- For **attack mode**: Use `rc1-4` or `rcl1-4` with `blacklist` and `gangblacklist`
+- For **kick mode**: You MUST provide `kickrc` (a separate recovery code) and set `kickbybl: true` or `kickall: true`
+- Kick uses `kblacklist` and `kgangblacklist` for kick-specific targets, but also checks `blacklist` and `gangblacklist` when `kickbybl: true`
 
-## 🌐 Use in Web Application
-
-### JavaScript Example
-
-```javascript
-const TUNNEL_URL = "https://xxxxx.trycloudflare.com";
-
-// Configure BEST
-async function configure() {
-  const response = await fetch(`${TUNNEL_URL}/api/configure`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      rc1: "YourCode1",
-      rc2: "YourCode2",
-      planet: "YourPlanet",
-      device: "312",
-      autorelease: true
-    })
-  });
-  return response.json();
-}
-
-// Connect to game
-async function connect() {
-  const response = await fetch(`${TUNNEL_URL}/api/connect`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
-  });
-  return response.json();
-}
-
-// Check status
-async function getStatus() {
-  const response = await fetch(`${TUNNEL_URL}/api/status`);
-  return response.json();
-}
-
-// Use it
-configure()
-  .then(() => connect())
-  .then(() => getStatus())
-  .then(status => console.log('Connected:', status.connected));
+**Kick Configuration Example:**
+```bash
+curl -X POST http://localhost:3000/api/configure \
+  -H "Content-Type: application/json" \
+  -d '{
+    "kickrc": "your_kick_code_here",
+    "planet": "THE_BOT",
+    "device": "312",
+    "blacklist": "[L][E][0]",
+    "gangblacklist": "[EVIL]",
+    "kblacklist": "BadUser1\nBadUser2",
+    "kgangblacklist": "[KICK]",
+    "kickmode": true,
+    "kickbybl": true,
+    "kickall": false
+  }'
 ```
 
-### Python Example
+### **3. Connect**
+```bash
+curl -X POST http://localhost:3000/api/connect \
+  -H "Content-Type: application/json"
+```
 
-```python
-import requests
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Connected 1 WebSocket(s)",
+  "connected": 1
+}
+```
 
-TUNNEL_URL = "https://xxxxx.trycloudflare.com"
+### **4. Check Status**
+```bash
+curl http://localhost:3000/api/status
+```
+
+**Response:**
+```json
+{
+  "connected": true,
+  "websockets": {
+    "ws1": true,
+    "ws2": false,
+    ...
+  },
+  "gameStates": {
+    "logic1": {
+      "username": "[R]OLE[X]",
+      "targetCount": 2,
+      "status": "attack"
+    }
+  }
+}
+```
+
+### **5. Get Logs**
+```bash
+curl http://localhost:3000/api/logs
+```
+
+### **6. Disconnect**
+```bash
+curl -X POST http://localhost:3000/api/disconnect \
+  -H "Content-Type: application/json"
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Disconnected all WebSockets"
+}
+```
+
+---
+
+## 📋 Quick Test Script
+
+Save this as `test.sh` and run it:
+
+```bash
+#!/bin/bash
+
+echo "=== Testing BEST API ==="
+
+# Health check
+echo -e "\n1. Health Check:"
+curl -s http://localhost:3000/api/health | jq .
 
 # Configure
-config = {
-    "rc1": "YourCode1",
-    "rc2": "YourCode2",
-    "planet": "YourPlanet",
+echo -e "\n2. Configure:"
+curl -s -X POST http://localhost:3000/api/configure \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rc1": "yourcode123",
+    "planet": "THE_BOT",
     "device": "312",
-    "autorelease": True
-}
-requests.post(f"{TUNNEL_URL}/api/configure", json=config)
+    "blacklist": "Enemy1\nEnemy2",
+    "gangblacklist": "[EVIL]",
+    "autorelease": true,
+    "exitting": true,
+    "attack1": 1940,
+    "waiting1": 1910,
+    "timershift": false,
+    "reconnect": 5000
+  }' | jq .
 
 # Connect
-requests.post(f"{TUNNEL_URL}/api/connect")
+echo -e "\n3. Connect:"
+curl -s -X POST http://localhost:3000/api/connect \
+  -H "Content-Type: application/json" | jq .
 
-# Check status
-status = requests.get(f"{TUNNEL_URL}/api/status").json()
-print(f"Connected: {status['connected']}")
+# Wait
+sleep 10
+
+# Status
+echo -e "\n4. Status:"
+curl -s http://localhost:3000/api/status | jq .
+
+# Logs
+echo -e "\n5. Logs:"
+curl -s http://localhost:3000/api/logs | jq '.logs.log1'
+
+# Disconnect
+echo -e "\n6. Disconnect:"
+curl -s -X POST http://localhost:3000/api/disconnect \
+  -H "Content-Type: application/json" | jq .
+
+echo -e "\n=== Test Complete ==="
 ```
 
-## 📁 Project Structure
+Run: `chmod +x test.sh && ./test.sh`
 
-```
-github_backend/
-├── .github/
-│   └── workflows/
-│       └── run-best-headless.yml    # GitHub Actions workflow
-├── resources/
-│   └── app/
-│       ├── main.js                  # Modified with Express API
-│       ├── package.json             # With express dependencies
-│       ├── any.html                 # Original GUI (unused)
-│       ├── bestscript.js            # Game logic
-│       ├── axios.js                 # HTTP client
-│       └── require.js               # Module loader
-├── .gitignore                       # Git ignore rules
-└── README.md                        # This file
-```
+---
 
-## ⚙️ How It Works
+## 🌐 Deploy to GitHub Actions
 
-1. **GitHub Actions** starts the workflow
-2. **Node.js** and dependencies are installed
-3. **Electron** starts in headless mode (no GUI)
-4. **Express API** server starts on port 3000
-5. **Cloudflared** creates tunnel to expose API
-6. **Your app** sends JSON to tunnel URL
-7. **BEST** connects to game via WebSocket
-8. **Status/logs** returned via API
+Once tested in Codespaces:
 
-## 🔒 Security Notes
+1. Go to: https://github.com/galaxykicklock7/GalaxyKickPipelineWin/actions
+2. Run workflow: **"BEST Headless Server with LocalTunnel (Linux)"**
+3. Get your public URL: `https://your-subdomain.loca.lt`
+4. Use same API commands (add `bypass-tunnel-reminder: true` header)
 
-⚠️ **Important:**
-- Tunnel URL changes every workflow run
-- Anyone with URL can control your instance
-- Don't share tunnel URL publicly
-- Consider adding API key authentication if needed
-- Maximum runtime: 6 hours (GitHub Actions limit)
+---
 
-## 🐛 Troubleshooting
+## 📚 More Documentation
 
-### Workflow doesn't start
-- Check if Actions are enabled in repository settings
-- Verify workflow file is in `.github/workflows/`
+- **CURL_COMMANDS.md** - More API examples
+- **COMPREHENSIVE_VERIFICATION.md** - Feature verification
+- **FILE_STRUCTURE.md** - Project structure
 
-### Can't find tunnel URL
-- Wait 30-60 seconds after workflow starts
-- Check "Start Cloudflare Tunnel" step in workflow logs
-- Look for `https://xxxxx.trycloudflare.com` pattern
+---
 
-### Connection fails
-- Verify recovery codes are correct
-- Check device type (312, 323, or 352)
-- Review logs: `curl TUNNEL_URL/api/logs`
+## ✅ Features
 
-### API returns errors
-- Ensure JSON is valid
-- Check `Content-Type: application/json` header
-- Verify tunnel URL is correct
+**100% feature parity with desktop bestscript.js:**
+- Complete game automation logic
+- All attack modes (normal, defense, low sec)
+- Timer shift optimization
+- Prison auto-escape
+- Target detection and tracking
+- Auto-reconnect support
 
-## 📞 Support
-
-For issues or questions:
-1. Check workflow logs in GitHub Actions
-2. Test endpoints with curl
-3. Verify JSON configuration syntax
-
-## 📄 License
-
-MIT License - Same as BEST
+**Repository:** https://github.com/galaxykicklock7/GalaxyKickPipelineWin
