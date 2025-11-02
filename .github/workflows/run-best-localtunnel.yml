@@ -105,15 +105,31 @@ jobs:
           if ($subdomain) {
             Write-Host "Using custom subdomain: $subdomain"
             $tunnelUrl = "https://$subdomain.loca.lt"
-            Start-Process -NoNewWindow -FilePath "npx" -ArgumentList "localtunnel", "--port", "3000", "--subdomain", "$subdomain"
+            
+            # Start localtunnel in background with proper output redirection
+            Start-Job -ScriptBlock {
+              param($sub)
+              & npx localtunnel --port 3000 --subdomain $sub
+            } -ArgumentList $subdomain
           } else {
             Write-Host "Using random subdomain"
-            Start-Process -NoNewWindow -FilePath "npx" -ArgumentList "localtunnel", "--port", "3000"
             $tunnelUrl = "https://random.loca.lt"
+            
+            Start-Job -ScriptBlock {
+              & npx localtunnel --port 3000
+            }
           }
           
           Write-Host "Waiting for tunnel to establish..."
-          Start-Sleep -Seconds 5
+          Start-Sleep -Seconds 10
+          
+          # Verify tunnel is working by testing localhost
+          try {
+            $localTest = Invoke-RestMethod -Uri "http://localhost:3000/api/health" -ErrorAction Stop
+            Write-Host "✅ Local API server responding: $($localTest.status)"
+          } catch {
+            Write-Host "❌ Warning: Local API not responding"
+          }
           
           Write-Host "`n=========================================="
           Write-Host "✅ LocalTunnel Established!"
