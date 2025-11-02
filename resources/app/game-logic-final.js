@@ -1032,7 +1032,7 @@ class FinalCompleteGameLogic {
         if (plnt && plnt.slice(0, 6) === "Prison") {
           this.addLog(this.wsNumber, `🔓 Prison detected - attempting escape`);
           
-          setTimeout(async () => {
+          setTimeout(async () => { // Quick escape attempt
             // Try HTTPS diamond escape first (premium method)
             const escaped = await this.escapeViaDiamond();
             
@@ -1044,7 +1044,7 @@ class FinalCompleteGameLogic {
               }
             }
             
-            // Rejoin target planet after 3 seconds
+            // Rejoin target planet after escape
             const targetPlanet = this.config.planet;
             if (targetPlanet) {
               setTimeout(() => {
@@ -1052,9 +1052,9 @@ class FinalCompleteGameLogic {
                   ws.send(`JOIN ${targetPlanet}\r\n`);
                   this.addLog(this.wsNumber, `🔄 Rejoining ${targetPlanet}`);
                 }
-              }, 3000);
+              }, 500); // Reduced from 3000ms to 500ms
             }
-          }, 1000);
+          }, 200); // Reduced from 1000ms to 200ms
         }
       }
 
@@ -1077,9 +1077,9 @@ class FinalCompleteGameLogic {
                 ws.send(`JOIN ${targetPlanet}\r\n`);
                 this.addLog(this.wsNumber, `🔄 Rejoining ${targetPlanet}`);
               }
-            }, 3000);
+            }, 500); // Reduced from 3000ms to 500ms
           }
-        }, 1000);
+        }, 200); // Reduced from 1000ms to 200ms
       }
 
     } catch (error) {
