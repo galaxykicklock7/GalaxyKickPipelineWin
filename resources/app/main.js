@@ -82,6 +82,9 @@ function createWebSocketConnection(wsNumber, recoveryCode) {
   
   appState.websockets[wsKey] = ws;
   
+  // Store haaapsi value for this connection (CRITICAL!)
+  let savedHaaapsi = null;
+  
   ws.on('open', () => {
     console.log(`WebSocket ${wsNumber} connected`);
     appState.wsStatus[wsKey] = true;
@@ -93,19 +96,25 @@ function createWebSocketConnection(wsNumber, recoveryCode) {
     const text = data.toString();
     const snippets = text.split(" ");
     
-    // Handle HAAAPSI
+    // Handle HAAAPSI - MUST SAVE IT!
     if (snippets[0] === "HAAAPSI") {
+      savedHaaapsi = snippets[1]; // Save for later use in REGISTER
       ws.send(`RECOVER ${recoveryCode}\r\n`);
       addLog(wsNumber, `Recovering with code: ${recoveryCode}`);
     }
     
-    // Handle REGISTER
+    // Handle DOMAINS message (server telling us the domain)
+    if (snippets[0] === "DOMAINS") {
+      addLog(wsNumber, `Domain received: ${snippets[1]}`);
+      // No response needed, just acknowledge
+    }
+    
+    // Handle REGISTER - Use saved haaapsi value!
     if (snippets[0] === "REGISTER") {
       const id = snippets[1];
       const password = snippets[2];
       const username = snippets[3].split("\r\n")[0];
-      const haaapsi = snippets[1]; // Simplified
-      const temp = parseHaaapsi(haaapsi);
+      const temp = parseHaaapsi(savedHaaapsi); // Use saved haaapsi from HAAAPSI message!
       ws.send(`USER ${id} ${password} ${username} ${temp}\r\n`);
       addLog(wsNumber, `Registered as: ${username}`);
     }
