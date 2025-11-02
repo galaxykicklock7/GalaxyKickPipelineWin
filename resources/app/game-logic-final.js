@@ -2,6 +2,7 @@
 // All features from 3360 lines of bestscript.js implemented for headless operation
 
 const crypto = require("crypto-js");
+const https = require("https");
 
 class FinalCompleteGameLogic {
   constructor(wsNumber, config, addLogCallback, updateConfigCallback) {
@@ -754,6 +755,91 @@ class FinalCompleteGameLogic {
   }
 
   // ========================================
+  // PRISON ESCAPE FUNCTION (HTTPS API - Diamond Method)
+  // ========================================
+  
+  async escapeViaDiamond() {
+    try {
+      if (!this.useridg || !this.passwordg) {
+        this.addLog(this.wsNumber, `⚠️ Cannot escape: missing user credentials`);
+        return false;
+      }
+
+      const userID = this.useridg;
+      const password = this.passwordg;
+      const boundary = '----WebKitFormBoundarylRahhWQJyn2QX0gB';
+      
+      const formData = [
+        `--${boundary}`,
+        'Content-Disposition: form-data; name="a"',
+        '',
+        'jail_free',
+        `--${boundary}`,
+        'Content-Disposition: form-data; name="type"',
+        '',
+        'escapeItemDiamond',
+        `--${boundary}`,
+        'Content-Disposition: form-data; name="usercur"',
+        '',
+        userID,
+        `--${boundary}`,
+        'Content-Disposition: form-data; name="ajax"',
+        '',
+        '1',
+        `--${boundary}--`
+      ].join('\r\n');
+      
+      const url = `https://galaxy.mobstudio.ru/services/?&userID=${userID}&password=${password}&query_rand=${Math.random()}`;
+      const parsedUrl = new URL(url);
+      
+      const options = {
+        hostname: parsedUrl.hostname,
+        port: 443,
+        path: parsedUrl.pathname + parsedUrl.search,
+        method: 'POST',
+        headers: {
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+          'Content-Length': Buffer.byteLength(formData),
+          'Accept': '*/*',
+          'X-Galaxy-Platform': 'web'
+        }
+      };
+      
+      return new Promise((resolve, reject) => {
+        const req = https.request(options, (res) => {
+          let data = '';
+          res.on('data', (chunk) => data += chunk);
+          res.on('end', () => {
+            if (data && data.includes && data.includes("Wrong escape type")) {
+              this.addLog(this.wsNumber, `⚠️ Wrong escape type (no diamond?)`);
+              resolve(false);
+            } else {
+              this.addLog(this.wsNumber, `✅ Escape successful (diamond used)`);
+              resolve(true);
+            }
+          });
+          res.on('error', (error) => {
+            this.addLog(this.wsNumber, `❌ Escape error: ${error.message}`);
+            reject(error);
+          });
+        });
+        
+        req.on('error', (error) => {
+          this.addLog(this.wsNumber, `❌ Escape request error: ${error.message}`);
+          reject(error);
+        });
+        
+        req.write(formData);
+        req.end();
+      });
+
+    } catch (error) {
+      console.error(`[WS${this.wsNumber}] Error in escapeViaDiamond:`, error);
+      return false;
+    }
+  }
+
+  // ========================================
   // 900 - PLANET/PRISON
   // ========================================
   
@@ -769,30 +855,19 @@ class FinalCompleteGameLogic {
         if (plnt && plnt.slice(0, 6) === "Prison") {
           this.addLog(this.wsNumber, `🔓 Prison detected - attempting escape`);
           
-          setTimeout(() => {
-            if (ws.readyState === ws.OPEN) {
-              ws.send("ACTION 2\r\n");
-              this.addLog(this.wsNumber, `🏃 Escape command sent`);
-              
-              const targetPlanet = this.config.planet;
-              if (targetPlanet) {
-                setTimeout(() => {
-                  if (ws.readyState === ws.OPEN) {
-                    ws.send(`JOIN ${targetPlanet}\r\n`);
-                    this.addLog(this.wsNumber, `🔄 Rejoining ${targetPlanet}`);
-                  }
-                }, 3000);
+          setTimeout(async () => {
+            // Try HTTPS diamond escape first (premium method)
+            const escaped = await this.escapeViaDiamond();
+            
+            if (!escaped) {
+              // Fallback to simple ACTION 2 (free method)
+              if (ws.readyState === ws.OPEN) {
+                ws.send("ACTION 2\r\n");
+                this.addLog(this.wsNumber, `🏃 Sent ACTION 2 (free escape)`);
               }
             }
-          }, 1000);
-        }
-      }
-
-      if (snippets[1] === "PRISON" && snippets[2] === "0" && this.config.autorelease) {
-        this.addLog(this.wsNumber, `🔓 Prison status detected - escaping`);
-        setTimeout(() => {
-          if (ws.readyState === ws.OPEN) {
-            ws.send("ACTION 2\r\n");
+            
+            // Rejoin target planet after 3 seconds
             const targetPlanet = this.config.planet;
             if (targetPlanet) {
               setTimeout(() => {
@@ -802,6 +877,30 @@ class FinalCompleteGameLogic {
                 }
               }, 3000);
             }
+          }, 1000);
+        }
+      }
+
+      if (snippets[1] === "PRISON" && snippets[2] === "0" && this.config.autorelease) {
+        this.addLog(this.wsNumber, `🔓 Prison status detected - escaping`);
+        setTimeout(async () => {
+          const escaped = await this.escapeViaDiamond();
+          
+          if (!escaped) {
+            if (ws.readyState === ws.OPEN) {
+              ws.send("ACTION 2\r\n");
+              this.addLog(this.wsNumber, `🏃 Sent ACTION 2 (free escape)`);
+            }
+          }
+          
+          const targetPlanet = this.config.planet;
+          if (targetPlanet) {
+            setTimeout(() => {
+              if (ws.readyState === ws.OPEN) {
+                ws.send(`JOIN ${targetPlanet}\r\n`);
+                this.addLog(this.wsNumber, `🔄 Rejoining ${targetPlanet}`);
+              }
+            }, 3000);
           }
         }, 1000);
       }
