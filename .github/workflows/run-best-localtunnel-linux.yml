@@ -60,6 +60,8 @@ jobs:
       - name: Install system dependencies for Electron
         run: |
           sudo apt-get update
+          
+          # Install most dependencies
           sudo apt-get install -y \
             libnss3 \
             libatk1.0-0 \
@@ -74,10 +76,19 @@ jobs:
             libgbm1 \
             libpango-1.0-0 \
             libcairo2 \
-            libasound2 \
             libatspi2.0-0 \
             xvfb
-          echo "✅ System dependencies installed"
+          
+          # Install audio library (name differs by Ubuntu version)
+          if apt-cache show libasound2t64 > /dev/null 2>&1; then
+            sudo apt-get install -y libasound2t64
+            echo "✅ Installed libasound2t64 (Ubuntu 24.04+)"
+          else
+            sudo apt-get install -y libasound2
+            echo "✅ Installed libasound2 (Ubuntu 22.04)"
+          fi
+          
+          echo "✅ All system dependencies installed"
 
       - name: Install application dependencies
         run: |
