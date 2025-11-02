@@ -80,18 +80,76 @@ jobs:
         run: |
           Write-Host "Starting BEST in headless mode..."
           cd resources/app
-          Start-Process -NoNewWindow -FilePath "npm" -ArgumentList "run", "headless-win"
-          Write-Host "Waiting for API server to start..."
-          Start-Sleep -Seconds 10
           
-          # Verify server is running
-          try {
-            $health = Invoke-RestMethod -Uri "http://localhost:3000/api/health" -ErrorAction Stop
-            Write-Host "✅ BEST API Server is running!"
-            Write-Host "Mode: $($health.mode)"
-          } catch {
-            Write-Host "❌ Failed to start BEST API Server"
-            Write-Host "Error: $_"
+          # Verify package.json and dependencies exist
+          if (!(Test-Path "package.json")) {
+            Write-Host "❌ package.json not found!"
+            exit 1
+          }
+          
+          if (!(Test-Path "node_modules")) {
+            Write-Host "❌ node_modules not found! Dependencies not installed!"
+            exit 1
+          }
+          
+          # Check if main.js exists
+          if (!(Test-Path "main.js")) {
+            Write-Host "❌ main.js not found!"
+            exit 1
+          }
+          
+          Write-Host "✅ All files present"
+          
+          # Start in background with job
+          $job = Start-Job -ScriptBlock {
+            Set-Location $using:PWD
+            $env:HEADLESS = "true"
+            $env:API_PORT = "3000"
+            & npm run headless-win
+          }
+          
+          Write-Host "Waiting for API server to start..."
+          Start-Sleep -Seconds 15
+          
+          # Check if job is still running
+          $jobState = Get-Job -Id $job.Id | Select-Object -ExpandProperty State
+          Write-Host "Job State: $jobState"
+          
+          if ($jobState -eq "Failed") {
+            Write-Host "❌ Job failed to start"
+            Receive-Job -Job $job
+            exit 1
+          }
+          
+          # Verify server is running (retry up to 5 times)
+          $attempts = 0
+          $maxAttempts = 5
+          $serverStarted = $false
+          
+          while ($attempts -lt $maxAttempts -and !$serverStarted) {
+            $attempts++
+            Write-Host "Attempt $attempts/$maxAttempts to connect to API server..."
+            
+            try {
+              $health = Invoke-RestMethod -Uri "http://localhost:3000/api/health" -ErrorAction Stop -TimeoutSec 5
+              Write-Host "✅ BEST API Server is running!"
+              Write-Host "Status: $($health.status)"
+              Write-Host "Mode: $($health.mode)"
+              Write-Host "Timestamp: $($health.timestamp)"
+              $serverStarted = $true
+            } catch {
+              Write-Host "⚠️  Attempt $attempts failed: $($_.Exception.Message)"
+              if ($attempts -lt $maxAttempts) {
+                Write-Host "Waiting 5 seconds before retry..."
+                Start-Sleep -Seconds 5
+              }
+            }
+          }
+          
+          if (!$serverStarted) {
+            Write-Host "❌ Failed to start BEST API Server after $maxAttempts attempts"
+            Write-Host "`nJob output:"
+            Receive-Job -Job $job
             exit 1
           }
 
