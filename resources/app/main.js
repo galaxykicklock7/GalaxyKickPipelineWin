@@ -167,8 +167,40 @@ const isGangBlacklisted = (username) => {
 // Helper function to count occurrences in array
 const countOccurrences = (arr, val) => arr.reduce((a, v) => (v === val ? a + 1 : a), 0);
 
-// Function to create WebSocket connection
-function createWebSocketConnection(wsNumber, recoveryCode) {
+// Connection retry state
+const connectionRetries = {
+  ws1: { count: 0, maxRetries: 5, backoff: 1000 },
+  ws2: { count: 0, maxRetries: 5, backoff: 1000 },
+  ws3: { count: 0, maxRetries: 5, backoff: 1000 },
+  ws4: { count: 0, maxRetries: 5, backoff: 1000 },
+  ws5: { count: 0, maxRetries: 5, backoff: 1000 }
+};
+
+// Function to create WebSocket connection with retry logic
+function createWebSocketConnection(wsNumber, recoveryCode, isRetry = false) {
+  const wsKey = `ws${wsNumber}`;
+  const logicKey = `logic${wsNumber}`;
+  const retryState = connectionRetries[wsKey];
+  
+  // Check if we've exceeded max retries
+  if (isRetry && retryState.count >= retryState.maxRetries) {
+    addLog(wsNumber, `❌ Max retries (${retryState.maxRetries}) exceeded. Stopping reconnection attempts.`);
+    retryState.count = 0; // Reset for future manual reconnect
+    return;
+  }
+  
+  if (isRetry) {
+    retryState.count++;
+    const delay = Math.min(retryState.backoff * Math.pow(2, retryState.count - 1), 30000); // Max 30s
+    addLog(wsNumber, `🔄 Retry attempt ${retryState.count}/${retryState.maxRetries} in ${delay}ms...`);
+    setTimeout(() => createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState), delay);
+  } else {
+    retryState.count = 0; // Reset retry counter for new connection
+    createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState);
+  }
+}
+
+function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
   const ws = new WebSocketClient("wss://cs.mobstudio.ru:6672");
   const wsKey = `ws${wsNumber}`;
   const logicKey = `logic${wsNumber}`;
@@ -186,7 +218,7 @@ function createWebSocketConnection(wsNumber, recoveryCode) {
     const code = appState.config[`rc${wsNum}`] || appState.config[`rcl${wsNum}`];
     if (code && !appState.wsStatus[wsKey]) {
       addLog(wsNum, `🔄 Auto-reconnecting WS${wsNum}...`);
-      createWebSocketConnection(wsNum, code);
+      createWebSocketConnection(wsNum, code, false); // Not a retry, new cycle
     }
   };
   
@@ -199,9 +231,10 @@ function createWebSocketConnection(wsNumber, recoveryCode) {
   ws.on('open', () => {
     console.log(`WebSocket ${wsNumber} connected`);
     appState.wsStatus[wsKey] = true;
+    retryState.count = 0; // Reset retry counter on successful connection
     gameLogic.resetState(); // Reset game state for new connection
     ws.send(`:en IDENT ${appState.config.device} -2 4030 1 2 :GALA\r\n`);
-    addLog(wsNumber, `Connection established for code ${wsNumber}`);
+    addLog(wsNumber, `✅ Connection established for code ${wsNumber}`);
   });
 
   ws.on('message', (data) => {
@@ -313,15 +346,33 @@ function createWebSocketConnection(wsNumber, recoveryCode) {
     }
   });
 
-  ws.on('close', () => {
-    console.log(`WebSocket ${wsNumber} closed`);
+  ws.on('close', (code, reason) => {
+    console.log(`WebSocket ${wsNumber} closed - Code: ${code}, Reason: ${reason}`);
     appState.wsStatus[wsKey] = false;
-    addLog(wsNumber, `Connection closed`);
+    addLog(wsNumber, `⚠️ Connection closed (code: ${code})`);
+    
+    // Only retry if not a clean disconnect and config still has the code
+    const recoveryCodeStillExists = appState.config[`rc${wsNumber}`] || appState.config[`rcl${wsNumber}`] || (wsNumber === 5 && appState.config.kickrc);
+    if (code !== 1000 && recoveryCodeStillExists && appState.connected) {
+      // Not a clean close, attempt retry
+      addLog(wsNumber, `🔄 Connection lost unexpectedly, will retry...`);
+      createWebSocketConnection(wsNumber, recoveryCode, true);
+    }
   });
 
   ws.on('error', (error) => {
     console.error(`WebSocket ${wsNumber} error:`, error);
-    addLog(wsNumber, `Error: ${error.message}`);
+    appState.wsStatus[wsKey] = false;
+    addLog(wsNumber, `❌ Error: ${error.message}`);
+    
+    // Retry on connection errors
+    const recoveryCodeStillExists = appState.config[`rc${wsNumber}`] || appState.config[`rcl${wsNumber}`] || (wsNumber === 5 && appState.config.kickrc);
+    if (recoveryCodeStillExists && appState.connected) {
+      addLog(wsNumber, `🔄 Connection error, will retry...`);
+      setTimeout(() => {
+        createWebSocketConnection(wsNumber, recoveryCode, true);
+      }, 1000); // Brief delay before retry
+    }
   });
   
   return ws;
@@ -457,9 +508,19 @@ apiServer.get('/api/status', (req, res) => {
     }
   });
   
+  // Get retry status
+  const retryStatus = {
+    ws1: { retries: connectionRetries.ws1.count, maxRetries: connectionRetries.ws1.maxRetries },
+    ws2: { retries: connectionRetries.ws2.count, maxRetries: connectionRetries.ws2.maxRetries },
+    ws3: { retries: connectionRetries.ws3.count, maxRetries: connectionRetries.ws3.maxRetries },
+    ws4: { retries: connectionRetries.ws4.count, maxRetries: connectionRetries.ws4.maxRetries },
+    ws5: { retries: connectionRetries.ws5.count, maxRetries: connectionRetries.ws5.maxRetries }
+  };
+  
   res.json({
     connected: appState.connected,
     websockets: appState.wsStatus,
+    retryStatus: retryStatus, // Show retry attempts
     gameStates: gameStates, // Include game state (targets, etc.)
     config: {
       ...appState.config,
