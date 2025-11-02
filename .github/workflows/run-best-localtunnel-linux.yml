@@ -133,10 +133,11 @@ jobs:
           
           echo "✅ All required files present"
           
-          # Start BEST in background
-          nohup npm start > ../../best-server.log 2>&1 &
+          # Start BEST in background (use headless script for Linux)
+          nohup npm run headless > ../../best-server.log 2>&1 &
           BEST_PID=$!
           echo "BEST started with PID: $BEST_PID"
+          echo "Using npm run headless (Linux version)"
           
           # Wait for server to start
           echo "Waiting for API server to start..."
@@ -168,8 +169,26 @@ jobs:
           if [ "$server_started" = "false" ]; then
             echo "❌ Failed to start BEST API Server after $max_attempts attempts"
             echo ""
-            echo "Server logs:"
-            cat ../../best-server.log
+            echo "=========================================="
+            echo "Server logs (last 100 lines):"
+            echo "=========================================="
+            if [ -f "../../best-server.log" ]; then
+              tail -n 100 ../../best-server.log
+            else
+              echo "No log file found"
+            fi
+            echo "=========================================="
+            echo ""
+            echo "Checking if process is still running..."
+            if ps -p $BEST_PID > /dev/null 2>&1; then
+              echo "✅ Process is still running (PID: $BEST_PID)"
+              echo "Server started but not responding on port 3000"
+              echo ""
+              echo "Checking what's listening on port 3000..."
+              netstat -tuln | grep 3000 || echo "Nothing listening on port 3000"
+            else
+              echo "❌ Process died (PID: $BEST_PID)"
+            fi
             exit 1
           fi
           
