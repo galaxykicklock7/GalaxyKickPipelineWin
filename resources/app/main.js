@@ -81,7 +81,9 @@ let appState = {
     kickbybl: false,
     dadplus: false,
     kickall: false,
-    reconnect: 5000
+    reconnect: 5000,
+    // Code rotation
+    rotateRC: false
   },
   logs: {
     log1: [],
@@ -216,6 +218,11 @@ function getCurrentCode(wsNumber) {
   
   if (!pool) return null;
   
+  // If rotation is disabled, always use main code (normal behavior)
+  if (!appState.config.rotateRC) {
+    return pool.mainCode || pool.altCode;
+  }
+  
   // If both codes exist, alternate between them
   if (pool.mainCode && pool.altCode) {
     const code = pool.useMain ? pool.mainCode : pool.altCode;
@@ -231,6 +238,11 @@ function getCurrentCode(wsNumber) {
 // Rotate to next code (main -> alt or alt -> main)
 function rotateCode(wsNumber) {
   if (wsNumber === 5) return; // Kick code has no rotation
+  
+  // Only rotate if rotateRC is enabled
+  if (!appState.config.rotateRC) {
+    return; // Keep using same code (normal behavior)
+  }
   
   const wsKey = `ws${wsNumber}`;
   const pool = connectionPool[wsKey];
@@ -272,11 +284,16 @@ function createWebSocketConnection(wsNumber, recoveryCode = null, isRetry = fals
     const delay = Math.min(retryState.backoff * Math.pow(2, retryState.count - 1), 30000); // Max 30s
     addLog(wsNumber, `🔄 Retry attempt ${retryState.count}/${retryState.maxRetries} in ${delay}ms...`);
     
-    // Rotate code on retry
-    rotateCode(wsNumber);
-    const nextCode = getCurrentCode(wsNumber);
-    
-    setTimeout(() => createWebSocketConnectionInternal(wsNumber, nextCode, retryState), delay);
+    // Rotate code on retry if rotateRC is enabled
+    if (appState.config.rotateRC) {
+      rotateCode(wsNumber);
+      const nextCode = getCurrentCode(wsNumber);
+      addLog(wsNumber, `🔄 Using rotated code for retry`);
+      setTimeout(() => createWebSocketConnectionInternal(wsNumber, nextCode, retryState), delay);
+    } else {
+      // Normal mode: use same code
+      setTimeout(() => createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState), delay);
+    }
   } else {
     retryState.count = 0; // Reset retry counter for new connection
     createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState);
@@ -296,20 +313,32 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
   };
   
   const reconnectCallback = (wsNum) => {
-    // Auto-reconnect logic with code rotation
+    // Auto-reconnect logic with optional code rotation
     const wsKey = `ws${wsNum}`;
     if (!appState.wsStatus[wsKey]) {
-      addLog(wsNum, `🔄 Auto-reconnecting WS${wsNum}...`);
-      
-      // Rotate to next code before reconnecting
-      rotateCode(wsNum);
-      
-      // Get the next code from pool
-      const nextCode = getCurrentCode(wsNum);
-      if (nextCode) {
-        createWebSocketConnection(wsNum, nextCode, false); // Not a retry, new cycle
+      if (appState.config.rotateRC) {
+        addLog(wsNum, `🔄 Auto-reconnecting WS${wsNum} with rotation...`);
+        
+        // Rotate to next code before reconnecting
+        rotateCode(wsNum);
+        
+        // Get the next code from pool
+        const nextCode = getCurrentCode(wsNum);
+        if (nextCode) {
+          createWebSocketConnection(wsNum, nextCode, false); // Not a retry, new cycle
+        } else {
+          addLog(wsNum, `❌ No code available for reconnection`);
+        }
       } else {
-        addLog(wsNum, `❌ No code available for reconnection`);
+        addLog(wsNum, `🔄 Auto-reconnecting WS${wsNum} (normal mode)...`);
+        
+        // Normal mode: use same code (main code only)
+        const code = getCurrentCode(wsNum);
+        if (code) {
+          createWebSocketConnection(wsNum, code, false);
+        } else {
+          addLog(wsNum, `❌ No code available for reconnection`);
+        }
       }
     }
   };
@@ -615,6 +644,7 @@ apiServer.get('/api/status', (req, res) => {
   
   // Get connection pool status
   const poolStatus = {
+    rotationEnabled: appState.config.rotateRC,
     ws1: { 
       hasMain: !!connectionPool.ws1?.mainCode, 
       hasAlt: !!connectionPool.ws1?.altCode, 
