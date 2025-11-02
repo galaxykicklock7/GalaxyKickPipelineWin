@@ -384,12 +384,23 @@ class FinalCompleteGameLogic {
       const gangblacklistfull = (this.config.gangblacklist || "").toLowerCase();
       const gangblacklist = gangblacklistfull.split("\n").filter(g => g.trim());
 
-      // DEBUG: Log every JOIN message
+      // Parse JOIN message format: "JOIN - username userid ..." or "JOIN userid username ..."
       const parts = text.split(" ");
-      if (parts.length >= 3) {
-        const joinedUsername = parts[2] ? parts[2].toLowerCase() : "";
-        this.addLog(this.wsNumber, `🔍 JOIN detected: ${joinedUsername}`);
+      let username = "";
+      let userid = "";
+      
+      if (parts[1] === "-") {
+        // Format: JOIN - username userid
+        username = parts[2] ? parts[2].toLowerCase() : "";
+        userid = parts[3] || "";
+      } else {
+        // Format: JOIN userid username
+        userid = parts[1] || "";
+        username = parts[2] ? parts[2].toLowerCase() : "";
       }
+
+      // DEBUG: Log every JOIN message
+      this.addLog(this.wsNumber, `🔍 JOIN detected: ${username} (${userid})`);
 
       let foundMatch = false;
       let matchedUser = "";
@@ -399,14 +410,12 @@ class FinalCompleteGameLogic {
       if (blacklistfull) {
         this.addLog(this.wsNumber, `🔎 Checking blacklist: [${blacklist.join(', ')}]`);
         for (const element of blacklist) {
-          if (element && data.includes(element)) {
-            if (parts.length >= 3) {
-              matchedUser = element;
-              matchedId = parts[1];
-              foundMatch = true;
-              this.addLog(this.wsNumber, `✅ MATCH FOUND: ${element} = ${parts[2]}`);
-              break;
-            }
+          if (element && username.includes(element)) {
+            matchedUser = element;
+            matchedId = userid;
+            foundMatch = true;
+            this.addLog(this.wsNumber, `✅ MATCH FOUND: ${element} in ${username}`);
+            break;
           }
         }
       }
@@ -415,14 +424,12 @@ class FinalCompleteGameLogic {
       if (!foundMatch && gangblacklistfull) {
         this.addLog(this.wsNumber, `🔎 Checking gangblacklist: [${gangblacklist.join(', ')}]`);
         for (const element of gangblacklist) {
-          if (element && data.includes(element)) {
-            if (parts.length >= 3) {
-              matchedUser = parts[2] || element;
-              matchedId = parts[1];
-              foundMatch = true;
-              this.addLog(this.wsNumber, `✅ GANG MATCH FOUND: ${element} = ${parts[2]}`);
-              break;
-            }
+          if (element && username.includes(element)) {
+            matchedUser = username;
+            matchedId = userid;
+            foundMatch = true;
+            this.addLog(this.wsNumber, `✅ GANG MATCH FOUND: ${element} in ${username}`);
+            break;
           }
         }
       }
@@ -464,17 +471,24 @@ class FinalCompleteGameLogic {
   handleJoinDefenseMode(ws, snippets, text) {
     try {
       if (!this.userFound) {
-        const data = text.toLowerCase();
-        const member = data.split(" ");
+        // Parse JOIN message format
+        const parts = text.split(" ");
+        let username = "";
+        let userid = "";
+        
+        if (parts[1] === "-") {
+          username = parts[2] ? parts[2].toLowerCase() : "";
+          userid = parts[3] || "";
+        } else {
+          userid = parts[1] || "";
+          username = parts[2] ? parts[2].toLowerCase() : "";
+        }
+        
         const gangblacklist = (this.config.gangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
         const timing = parseInt(this.config[`waiting${this.wsNumber}`] || 1910);
         
         gangblacklist.forEach((element) => {
-          if (element && member.includes(element.toLowerCase())) {
-            const memberindex = member.indexOf(element.toLowerCase());
-            const userid = member[memberindex + 2];
-            const username = member[memberindex + 1];
-            
+          if (element && username.includes(element)) {
             this.useridtarget = userid;
             this.status = "defense";
             this.userFound = true;
@@ -501,17 +515,27 @@ class FinalCompleteGameLogic {
   // JOIN Handler #3 - Target tracking (NEW! Builds target pool)
   handleJoinTargetTracking(ws, snippets, text) {
     try {
-      const data = text.toLowerCase();
-      const member = data.split(" ");
+      // Parse JOIN message format
+      const parts = text.split(" ");
+      let username = "";
+      let userid = "";
+      
+      if (parts[1] === "-") {
+        username = parts[2] || "";
+        userid = parts[3] || "";
+      } else {
+        userid = parts[1] || "";
+        username = parts[2] || "";
+      }
+      
+      const usernameLower = username.toLowerCase();
       
       // Track username blacklist
       const blacklist = (this.config.blacklist || "").split("\n").filter(b => b.trim());
       blacklist.forEach(element => {
-        if (element && member.includes(element.toLowerCase())) {
-          const memberindex = member.indexOf(element.toLowerCase());
-          const useridnew = member[memberindex + 1];
-          if (useridnew && !this.targetids.includes(useridnew)) {
-            this.targetids.push(useridnew);
+        if (element && usernameLower.includes(element.toLowerCase())) {
+          if (userid && !this.targetids.includes(userid)) {
+            this.targetids.push(userid);
             this.targetnames.push(element);
             this.addLog(this.wsNumber, `📝 Added to pool: ${element}`);
           }
@@ -521,12 +545,9 @@ class FinalCompleteGameLogic {
       // Track gang blacklist
       const gangblacklist = (this.config.gangblacklist || "").split("\n").filter(g => g.trim());
       gangblacklist.forEach(element => {
-        if (element && member.includes(element.toLowerCase())) {
-          const memberindex = member.indexOf(element.toLowerCase());
-          const useridnew = member[memberindex + 2];
-          const username = member[memberindex + 1];
-          if (useridnew && !this.targetids.includes(useridnew)) {
-            this.targetids.push(useridnew);
+        if (element && usernameLower.includes(element.toLowerCase())) {
+          if (userid && !this.targetids.includes(userid)) {
+            this.targetids.push(userid);
             this.targetnames.push(username);
             this.addLog(this.wsNumber, `📝 Added to pool: ${username}`);
           }
@@ -543,15 +564,20 @@ class FinalCompleteGameLogic {
       // Only process if this is ws5 (kick account)
       if (this.wsNumber !== 5) return;
       
-      const data = text.toLowerCase();
+      // Parse JOIN message format: "JOIN - username userid ..." or "JOIN userid username ..."
       const parts = text.split(" ");
+      let username = "";
+      let userid = "";
       
-      // Extract user info from JOIN message
-      // Format: "JOIN userid username ..."
-      if (parts.length < 3) return;
+      if (parts[1] === "-") {
+        username = parts[2] ? parts[2].toLowerCase() : "";
+        userid = parts[3] || "";
+      } else {
+        userid = parts[1] || "";
+        username = parts[2] ? parts[2].toLowerCase() : "";
+      }
       
-      const userid = parts[1];
-      const username = parts[2] ? parts[2].toLowerCase() : "";
+      if (!userid || !username) return;
       
       // Skip self
       if (userid === this.useridg) return;
