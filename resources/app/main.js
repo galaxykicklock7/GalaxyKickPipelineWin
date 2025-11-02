@@ -220,6 +220,7 @@ function getCurrentCode(wsNumber) {
   
   // If rotation is disabled, always use main code (normal behavior)
   if (!appState.config.rotateRC) {
+    addLog(wsNumber, `📍 Using main code (rotation disabled)`);
     return pool.mainCode || pool.altCode;
   }
   
@@ -228,10 +229,12 @@ function getCurrentCode(wsNumber) {
     const code = pool.useMain ? pool.mainCode : pool.altCode;
     const codeType = pool.useMain ? 'Main' : 'Alt';
     console.log(`🔄 WS${wsNumber} using ${codeType} code`);
+    addLog(wsNumber, `🔄 Using ${codeType} code (rotation enabled)`);
     return code;
   }
   
   // If only one code exists, use it
+  addLog(wsNumber, `📍 Using single code (no alternate available)`);
   return pool.mainCode || pool.altCode;
 }
 
