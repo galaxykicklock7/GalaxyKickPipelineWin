@@ -354,6 +354,11 @@ class FinalCompleteGameLogic {
   }
 
   handle353Message(ws, snippets, text) {
+    // Skip 353 for ws5 (kick mode doesn't need user list processing)
+    if (this.wsNumber === 5) {
+      return;
+    }
+    
     if (this.config.lowsecmode) {
       this.handle353LowSec(ws, snippets, text);
     } else {
@@ -368,7 +373,10 @@ class FinalCompleteGameLogic {
   // JOIN Handler #1 - Attack mode (immediate attack on blacklist match)
   handleJoinAttackMode(ws, snippets, text) {
     try {
-      if (!this.config.exitting) return;
+      if (!this.config.exitting) {
+        this.addLog(this.wsNumber, `⚠️ JOIN attack disabled (exitting=false)`);
+        return;
+      }
 
       const data = text.toLowerCase();
       const blacklistfull = (this.config.blacklist || "").toLowerCase();
@@ -376,19 +384,27 @@ class FinalCompleteGameLogic {
       const gangblacklistfull = (this.config.gangblacklist || "").toLowerCase();
       const gangblacklist = gangblacklistfull.split("\n").filter(g => g.trim());
 
+      // DEBUG: Log every JOIN message
+      const parts = text.split(" ");
+      if (parts.length >= 3) {
+        const joinedUsername = parts[2] ? parts[2].toLowerCase() : "";
+        this.addLog(this.wsNumber, `🔍 JOIN detected: ${joinedUsername}`);
+      }
+
       let foundMatch = false;
       let matchedUser = "";
       let matchedId = "";
 
       // Check username blacklist
       if (blacklistfull) {
+        this.addLog(this.wsNumber, `🔎 Checking blacklist: [${blacklist.join(', ')}]`);
         for (const element of blacklist) {
           if (element && data.includes(element)) {
-            const parts = text.split(" ");
             if (parts.length >= 3) {
               matchedUser = element;
               matchedId = parts[1];
               foundMatch = true;
+              this.addLog(this.wsNumber, `✅ MATCH FOUND: ${element} = ${parts[2]}`);
               break;
             }
           }
@@ -397,13 +413,14 @@ class FinalCompleteGameLogic {
 
       // Check gang blacklist
       if (!foundMatch && gangblacklistfull) {
+        this.addLog(this.wsNumber, `🔎 Checking gangblacklist: [${gangblacklist.join(', ')}]`);
         for (const element of gangblacklist) {
           if (element && data.includes(element)) {
-            const parts = text.split(" ");
             if (parts.length >= 3) {
               matchedUser = parts[2] || element;
               matchedId = parts[1];
               foundMatch = true;
+              this.addLog(this.wsNumber, `✅ GANG MATCH FOUND: ${element} = ${parts[2]}`);
               break;
             }
           }
@@ -520,7 +537,95 @@ class FinalCompleteGameLogic {
     }
   }
 
-  // JOIN Handler #4 - Low sec mode
+  // JOIN Handler #4 - Kick mode (NEW! For ws5/kickrc)
+  handleJoinKickMode(ws, snippets, text) {
+    try {
+      // Only process if this is ws5 (kick account)
+      if (this.wsNumber !== 5) return;
+      
+      const data = text.toLowerCase();
+      const parts = text.split(" ");
+      
+      // Extract user info from JOIN message
+      // Format: "JOIN userid username ..."
+      if (parts.length < 3) return;
+      
+      const userid = parts[1];
+      const username = parts[2] ? parts[2].toLowerCase() : "";
+      
+      // Skip self
+      if (userid === this.useridg) return;
+      
+      let shouldKick = false;
+      let reason = "";
+      
+      // Check kickall mode - kick everyone
+      if (this.config.kickall) {
+        shouldKick = true;
+        reason = "kickall";
+      }
+      
+      // Check kickbybl mode - kick by blacklist
+      if (!shouldKick && this.config.kickbybl) {
+        // Check kblacklist (kick username blacklist)
+        const kblacklist = (this.config.kblacklist || "").toLowerCase().split("\n").filter(k => k.trim());
+        for (const blocked of kblacklist) {
+          if (blocked && username.includes(blocked)) {
+            shouldKick = true;
+            reason = `kblacklist: ${blocked}`;
+            break;
+          }
+        }
+        
+        // Check kgangblacklist (kick gang blacklist)
+        if (!shouldKick) {
+          const kgangblacklist = (this.config.kgangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+          for (const gang of kgangblacklist) {
+            if (gang && username.includes(gang)) {
+              shouldKick = true;
+              reason = `kgangblacklist: ${gang}`;
+              break;
+            }
+          }
+        }
+        
+        // Also check regular blacklist if kickbybl is enabled
+        if (!shouldKick) {
+          const blacklist = (this.config.blacklist || "").toLowerCase().split("\n").filter(b => b.trim());
+          for (const blocked of blacklist) {
+            if (blocked && username.includes(blocked)) {
+              shouldKick = true;
+              reason = `blacklist: ${blocked}`;
+              break;
+            }
+          }
+        }
+        
+        // Also check gangblacklist if kickbybl is enabled
+        if (!shouldKick) {
+          const gangblacklist = (this.config.gangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+          for (const gang of gangblacklist) {
+            if (gang && username.includes(gang)) {
+              shouldKick = true;
+              reason = `gangblacklist: ${gang}`;
+              break;
+            }
+          }
+        }
+      }
+      
+      // Execute kick if conditions met
+      if (shouldKick && this.config.kickmode) {
+        this.addLog(this.wsNumber, `👢 Kicking ${username} (${userid}) - Reason: ${reason}`);
+        ws.send(`KICK ${userid}\r\n`);
+      }
+      
+    } catch (error) {
+      console.error(`[WS${this.wsNumber}] Error in handleJoinKickMode:`, error);
+    }
+  }
+
+  // JOIN Handler #5 - Low sec mode
   handleJoinLowSec(ws, snippets, text) {
     try {
       if (!this.config.exitting) return;
@@ -585,6 +690,13 @@ class FinalCompleteGameLogic {
 
   // JOIN Router - Calls all handlers
   handleJoinMessage(ws, snippets, text) {
+    // Always check kick mode first (for ws5)
+    if (this.wsNumber === 5) {
+      this.handleJoinKickMode(ws, snippets, text);
+      return;
+    }
+    
+    // For ws1-4, use normal attack/defense logic
     if (this.config.lowsecmode) {
       this.handleJoinLowSec(ws, snippets, text);
     } else {
