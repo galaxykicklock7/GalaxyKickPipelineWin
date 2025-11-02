@@ -343,6 +343,11 @@ class FinalCompleteGameLogic {
             if (this.config.autorelease || this.config.exitting) {
               ws.send("QUIT :ds\r\n");
               this.addLog(this.wsNumber, `🚪 QUIT after attack`);
+              
+              // Trigger auto-reconnect if sleeping mode is enabled
+              if (this.config.sleeping) {
+                this.OffSleep(ws);
+              }
             }
           }
         }, timing);
@@ -456,6 +461,11 @@ class FinalCompleteGameLogic {
               if (ws.readyState === ws.OPEN) {
                 ws.send("QUIT :ds\r\n");
                 this.addLog(this.wsNumber, `🚪 QUIT`);
+                
+                // Trigger auto-reconnect if sleeping mode is enabled
+                if (this.config.sleeping) {
+                  this.OffSleep(ws);
+                }
               }
             }, waiting);
           }
@@ -502,6 +512,11 @@ class FinalCompleteGameLogic {
                 
                 ws.send("QUIT :ds\r\n");
                 this.addLog(this.wsNumber, `🚪 QUIT`);
+                
+                // Trigger auto-reconnect if sleeping mode is enabled
+                if (this.config.sleeping) {
+                  this.OffSleep(ws);
+                }
               }
             }, timing);
           }
@@ -701,6 +716,11 @@ class FinalCompleteGameLogic {
                   if (ws.readyState === ws.OPEN) {
                     ws.send("QUIT :ds\r\n");
                     this.addLog(this.wsNumber, `🚪 QUIT`);
+                    
+                    // Trigger auto-reconnect if sleeping mode is enabled
+                    if (this.config.sleeping) {
+                      this.OffSleep(ws);
+                    }
                   }
                 }, waiting);
               }
@@ -829,6 +849,11 @@ class FinalCompleteGameLogic {
             if (ws.readyState === ws.OPEN) {
               ws.send("QUIT :ds\r\n");
               this.addLog(this.wsNumber, `🚪 QUIT (target left)`);
+              
+              // Trigger auto-reconnect if sleeping mode is enabled
+              if (this.config.sleeping) {
+                this.OffSleep(ws);
+              }
             }
           }, 100);
         }
@@ -877,6 +902,11 @@ class FinalCompleteGameLogic {
             if (ws.readyState === ws.OPEN) {
               ws.send("QUIT :ds\r\n");
               this.addLog(this.wsNumber, `🚪 QUIT (target sleeping)`);
+              
+              // Trigger auto-reconnect if sleeping mode is enabled
+              if (this.config.sleeping) {
+                this.OffSleep(ws);
+              }
             }
           }, 100);
         }
