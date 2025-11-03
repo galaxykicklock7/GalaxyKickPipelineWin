@@ -357,6 +357,17 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
     appState.wsStatus[wsKey] = true;
     retryState.count = 0; // Reset retry counter on successful connection
     gameLogic.resetState(); // Reset game state for new connection
+    
+    // Increment the counter for code rotation (matches bestscript.js behavior)
+    gameLogic.inc++;
+    
+    // Log which code is being used (for debugging)
+    const pool = connectionPool[wsKey];
+    if (pool && pool.mainCode && pool.altCode && appState.config.rotateRC) {
+      const codeType = pool.useMain ? 'Main' : 'Alt';
+      addLog(wsNumber, `🔑 Using ${codeType} code (connection #${gameLogic.inc})`);
+    }
+    
     ws.send(`:en IDENT ${appState.config.device} -2 4030 1 2 :GALA\r\n`);
     addLog(wsNumber, `✅ Connection established for code ${wsNumber}`);
   });
@@ -370,7 +381,17 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
       savedHaaapsi = snippets[1]; // Save for later use in REGISTER
       gameLogic.haaapsi = savedHaaapsi; // Also save in game logic
       ws.send(`RECOVER ${recoveryCode}\r\n`);
-      addLog(wsNumber, `Recovering with code: ${recoveryCode}`);
+      
+      // Enhanced logging to show which code is being used
+      const pool = connectionPool[wsKey];
+      if (pool && pool.mainCode && pool.altCode && appState.config.rotateRC) {
+        const isMain = (recoveryCode === pool.mainCode);
+        const isAlt = (recoveryCode === pool.altCode);
+        const codeLabel = isMain ? '(Main RC)' : isAlt ? '(Alt RC)' : '(Unknown)';
+        addLog(wsNumber, `🔑 Recovering with ${codeLabel}: ${recoveryCode}`);
+      } else {
+        addLog(wsNumber, `Recovering with code: ${recoveryCode}`);
+      }
     }
     
     // Handle DOMAINS message (server telling us the domain)
@@ -480,7 +501,19 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
     if (code !== 1000 && recoveryCodeStillExists && appState.connected) {
       // Not a clean close, attempt retry
       addLog(wsNumber, `🔄 Connection lost unexpectedly, will retry...`);
-      createWebSocketConnection(wsNumber, recoveryCode, true);
+      
+      // If rotation is enabled, rotate to next code before retrying
+      if (appState.config.rotateRC && wsNumber !== 5) {
+        rotateCode(wsNumber);
+        const nextCode = getCurrentCode(wsNumber);
+        if (nextCode) {
+          createWebSocketConnection(wsNumber, nextCode, true);
+        } else {
+          createWebSocketConnection(wsNumber, recoveryCode, true);
+        }
+      } else {
+        createWebSocketConnection(wsNumber, recoveryCode, true);
+      }
     }
   });
 
@@ -494,7 +527,18 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
     if (recoveryCodeStillExists && appState.connected) {
       addLog(wsNumber, `🔄 Connection error, will retry...`);
       setTimeout(() => {
-        createWebSocketConnection(wsNumber, recoveryCode, true);
+        // If rotation is enabled, rotate to next code before retrying
+        if (appState.config.rotateRC && wsNumber !== 5) {
+          rotateCode(wsNumber);
+          const nextCode = getCurrentCode(wsNumber);
+          if (nextCode) {
+            createWebSocketConnection(wsNumber, nextCode, true);
+          } else {
+            createWebSocketConnection(wsNumber, recoveryCode, true);
+          }
+        } else {
+          createWebSocketConnection(wsNumber, recoveryCode, true);
+        }
       }, 1000); // Brief delay before retry
     }
   });
