@@ -371,6 +371,9 @@ jobs:
           echo "Started: $(date '+%Y-%m-%d %H:%M:%S')"
           echo "Will stop: $(date -d "+$duration minutes" '+%Y-%m-%d %H:%M:%S')"
           echo ""
+          echo "💡 TIP: Backend is ready but not connected yet."
+          echo "   Use /api/configure and /api/connect to start!"
+          echo ""
           echo "Monitoring status every 60 seconds..."
           echo ""
           
@@ -387,7 +390,7 @@ jobs:
               if [ "$connected" = "true" ]; then
                 status_icon="✅ Connected"
               else
-                status_icon="⭕ Disconnected"
+                status_icon="⭕ Ready (waiting for connection)"
               fi
               
               echo "[$(date '+%H:%M:%S')] Check #$check_count | $status_icon | Time left: $remaining min"
