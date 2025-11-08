@@ -452,37 +452,10 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
       }
       
       // Check prison status after connecting if auto-release is enabled
-      // This mimics bestscript.js behavior of clicking "Release All" button on connect
+      // The 900 message will tell us which planet we're on, and handle escape if needed
       if (appState.config.autorelease) {
-        console.log(`DEBUG ws${wsNumber}: Auto-release enabled, will attempt escape after 2 seconds`);
-        addLog(wsNumber, `🔓 Auto-release enabled - will check prison status`);
-        
-        setTimeout(async () => {
-          // Try to escape from prison (if in prison)
-          if (gameLogic && gameLogic.escapeViaDiamond) {
-            addLog(wsNumber, `🔍 Checking if in prison...`);
-            const escaped = await gameLogic.escapeViaDiamond();
-            
-            if (!escaped) {
-              // Fallback to free escape method
-              if (ws.readyState === ws.OPEN) {
-                ws.send("ACTION 2\r\n");
-                addLog(wsNumber, `🏃 Sent ACTION 2 (free escape attempt)`);
-              }
-            }
-            
-            // Rejoin target planet after escape attempt
-            const targetPlanet = appState.config.planet;
-            if (targetPlanet) {
-              setTimeout(() => {
-                if (ws.readyState === ws.OPEN) {
-                  ws.send(`JOIN ${targetPlanet}\r\n`);
-                  addLog(wsNumber, `🔄 Rejoining ${targetPlanet}`);
-                }
-              }, 3000);
-            }
-          }
-        }, 2000);
+        console.log(`DEBUG ws${wsNumber}: Auto-release enabled, will check prison on 900 message`);
+        addLog(wsNumber, `🔓 Auto-release enabled - waiting for planet info`);
       }
     }
     

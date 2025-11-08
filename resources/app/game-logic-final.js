@@ -1059,12 +1059,22 @@ class FinalCompleteGameLogic {
           let data = '';
           res.on('data', (chunk) => data += chunk);
           res.on('end', () => {
+            // Log the actual response for debugging
+            this.addLog(this.wsNumber, `🔍 Escape response: ${data.substring(0, 100)}`);
+            
             if (data && data.includes && data.includes("Wrong escape type")) {
               this.addLog(this.wsNumber, `⚠️ Wrong escape type (no diamond?)`);
               resolve(false);
-            } else {
+            } else if (data && data.includes && data.includes("not in prison")) {
+              this.addLog(this.wsNumber, `ℹ️ Not in prison - no escape needed`);
+              resolve(false);
+            } else if (data && data.includes && (data.includes("success") || data.includes("escaped"))) {
               this.addLog(this.wsNumber, `✅ Escape successful (diamond used)`);
               resolve(true);
+            } else {
+              // Unknown response - assume not in prison or failed
+              this.addLog(this.wsNumber, `⚠️ Escape attempt unclear - may not be in prison`);
+              resolve(false);
             }
           });
           res.on('error', (error) => {
