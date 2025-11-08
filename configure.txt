@@ -4,7 +4,7 @@
 
 # BACKEND URL OPTIONS:
 # 1. LocalTunnel (GitHub Actions): https://best-backend.loca.lt
-# 2. Localhost (Codespaces/Local): http://localhost:3000
+# 2. Localhost (Your current): http://localhost:3000
 # 3. Codespaces Port Forward: https://your-codespace-url-3000.app.github.dev
 
 # IMPORTANT: For LocalTunnel, add this header to bypass reminder page:
@@ -14,9 +14,8 @@
 # STEP 1: CONFIGURE (Set all settings)
 # ========================================
 
-curl -X POST https://best-backend.loca.lt/api/configure \
+curl -X POST http://localhost:3000/api/configure \
   -H "Content-Type: application/json" \
-  -H "bypass-tunnel-reminder: true" \
   -d '{
   "rc1": "onfoqk2ff1",
   "rc2": "",
@@ -40,7 +39,7 @@ curl -X POST https://best-backend.loca.lt/api/configure \
   "lowsecmode": false,
   "kickmode": true,
   "modena": false,
-  "kickbybl": true,
+  "kickbybl": false,
   "dadplus": false,
   "kickall": false,
   "attack1": 1700,
@@ -65,31 +64,27 @@ curl -X POST https://best-backend.loca.lt/api/configure \
 # STEP 2: CONNECT (Start WebSockets)
 # ========================================
 
-curl -X POST https://best-backend.loca.lt/api/connect \
-  -H "Content-Type: application/json" \
-  -H "bypass-tunnel-reminder: true"
+curl -X POST http://localhost:3000/api/connect \
+  -H "Content-Type: application/json"
 
 # ========================================
 # OPTIONAL: CHECK STATUS
 # ========================================
 
-curl https://best-backend.loca.lt/api/status \
-  -H "bypass-tunnel-reminder: true"
+curl http://localhost:3000/api/status
 
 # ========================================
 # OPTIONAL: VIEW LOGS
 # ========================================
 
-curl https://best-backend.loca.lt/api/logs \
-  -H "bypass-tunnel-reminder: true"
+curl http://localhost:3000/api/logs
 
 # ========================================
 # OPTIONAL: DISCONNECT
 # ========================================
 
-curl -X POST https://best-backend.loca.lt/api/disconnect \
-  -H "Content-Type: application/json" \
-  -H "bypass-tunnel-reminder: true"
+curl -X POST http://localhost:3000/api/disconnect \
+  -H "Content-Type: application/json"
 
 # ========================================
 # KEY FEATURES YOU MIGHT HAVE MISSED:
@@ -113,14 +108,27 @@ curl -X POST https://best-backend.loca.lt/api/disconnect \
 #    - Automatically reconnects after "reconnect" milliseconds
 #    - Useful for continuous operation without manual intervention
 
-# 4. KICK MODE (Separate account):
+# 4. KICK MODE (Separate account - WebSocket 5):
 #    - Requires "kickrc" (separate recovery code)
-#    - Set "kickmode": true to enable
-#    - Options:
-#      * "kickall": true - Kicks everyone who joins
-#      * "kickbybl": true - Kicks based on blacklists
-#    - Uses "kblacklist" and "kgangblacklist" for kick targets
-#    - Also checks "blacklist" and "gangblacklist" when kickbybl=true
+#    - Set "kickmode": true to enable kick account
+#    - Set "modena": true to disable kick mode (N/A mode)
+#    
+#    KICK OPTIONS (mutually exclusive - only ONE should be true):
+#    ┌─────────────┬──────────────┬─────────────────────────────────────┐
+#    │ Option      │ JSON Value   │ Description                         │
+#    ├─────────────┼──────────────┼─────────────────────────────────────┤
+#    │ No Kick     │ All false    │ Kick mode enabled but no kicking    │
+#    │ Everyone    │ kickall:true │ Kicks everyone who joins            │
+#    │ By Blacklist│ kickbybl:true│ Kicks based on blacklists           │
+#    │ Dad+        │ dadplus:true │ Kicks users with "aura" status      │
+#    │ N/A         │ modena:true  │ Disables kick mode entirely         │
+#    └─────────────┴──────────────┴─────────────────────────────────────┘
+#    
+#    BLACKLISTS USED:
+#    - "kblacklist": Kick-specific username blacklist
+#    - "kgangblacklist": Kick-specific gang blacklist
+#    - "blacklist": Also checked when kickbybl=true
+#    - "gangblacklist": Also checked when kickbybl=true
 
 # 5. LOW SEC MODE:
 #    - Set "lowsecmode": true
@@ -148,3 +156,212 @@ curl -X POST https://best-backend.loca.lt/api/disconnect \
 #
 # curl -X POST http://localhost:3000/api/connect \
 #   -H "Content-Type: application/json"
+
+
+# ========================================
+# KICK MODE CONFIGURATION EXAMPLES
+# ========================================
+
+# Example 1: No Kick (kick mode enabled but not kicking)
+# This connects the kick account but doesn't kick anyone
+# {
+#   "kickrc": "your_kick_code",
+#   "kickmode": true,
+#   "modena": false,
+#   "kickall": false,
+#   "kickbybl": false,
+#   "dadplus": false
+# }
+# BACKEND BEHAVIOR: WS5 connects, joins channel, but no kicking happens
+
+# Example 2: Kick Everyone
+# {
+#   "kickrc": "your_kick_code",
+#   "kickmode": true,
+#   "modena": false,
+#   "kickall": true,
+#   "kickbybl": false,
+#   "dadplus": false
+# }
+
+# Example 3: Kick By Blacklist
+# {
+#   "kickrc": "your_kick_code",
+#   "kickmode": true,
+#   "modena": false,
+#   "kickall": false,
+#   "kickbybl": true,
+#   "dadplus": false,
+#   "kblacklist": "BadUser1\nBadUser2",
+#   "kgangblacklist": "[EVIL]",
+#   "blacklist": "Enemy1",
+#   "gangblacklist": "[BAD]"
+# }
+
+# Example 4: N/A Mode (kick disabled)
+# {
+#   "kickrc": "your_kick_code",
+#   "kickmode": true,
+#   "modena": true,
+#   "kickall": false,
+#   "kickbybl": false,
+#   "dadplus": false
+# }
+
+# Example 5: Dad+ Mode (kicks users with "aura" status)
+# {
+#   "kickrc": "your_kick_code",
+#   "kickmode": true,
+#   "modena": false,
+#   "kickall": false,
+#   "kickbybl": false,
+#   "dadplus": true
+# }
+
+# ========================================
+# KICK MODE LOGIC SUMMARY
+# ========================================
+# 
+# The kick logic works as follows:
+# 1. If modena=true: Kick mode is disabled (N/A)
+# 2. If kickall=true: Kicks everyone who joins (except self)
+# 3. If kickbybl=true: Kicks users matching any of these lists:
+#    - kblacklist (kick-specific username list)
+#    - kgangblacklist (kick-specific gang list)
+#    - blacklist (main username list)
+#    - gangblacklist (main gang list)
+# 4. If dadplus=true: Kicks users who have "aura" in their 860 status message
+# 5. If all false: Kick mode enabled but no kicking happens
+#
+# IMPORTANT: Only ONE kick option should be true at a time!
+# Setting multiple to true may cause unexpected behavior.
+
+
+# ========================================
+# IMPORTANT: DISCONNECT BEHAVIOR
+# ========================================
+#
+# When you call /api/disconnect, the backend will:
+# 1. Set appState.connected = false (prevents auto-reconnect)
+# 2. Send QUIT command to all WebSockets
+# 3. Close all connections gracefully
+#
+# SLEEPING MODE AUTO-RECONNECT:
+# - If "sleeping": true, the bot auto-reconnects after attacks
+# - However, if you call /api/disconnect, it will NOT reconnect
+# - The reconnectCallback checks appState.connected before reconnecting
+#
+# This ensures that when your frontend sends "Exit/Disconnect",
+# the backend stops completely and doesn't try to reconnect.
+
+
+# ========================================
+# FRONTEND TO BACKEND MAPPING GUIDE
+# ========================================
+
+# SCENARIO 1: No Kick (Kick account active but not kicking)
+# Frontend sends:
+{
+  "kickrc": "code",
+  "kickmode": true,
+  "modena": false,
+  "kickall": false,
+  "kickbybl": false,
+  "dadplus": false
+}
+# Backend does: Connects WS5, joins channel, monitors but doesn't kick
+
+# SCENARIO 2: Kick Everyone
+# Frontend sends:
+{
+  "kickrc": "code",
+  "kickmode": true,
+  "modena": false,
+  "kickall": true,
+  "kickbybl": false,
+  "dadplus": false
+}
+# Backend does: Kicks every user who joins (except self and kblacklist/kgangblacklist)
+
+# SCENARIO 3: Kick By Blacklist
+# Frontend sends:
+{
+  "kickrc": "code",
+  "kickmode": true,
+  "modena": false,
+  "kickall": false,
+  "kickbybl": true,
+  "dadplus": false,
+  "kblacklist": "BadUser1\nBadUser2",
+  "kgangblacklist": "[EVIL]"
+}
+# Backend does: Kicks users matching kblacklist, kgangblacklist, blacklist, or gangblacklist
+
+# SCENARIO 4: Dad+ Mode (Kick users with aura)
+# Frontend sends:
+{
+  "kickrc": "code",
+  "kickmode": true,
+  "modena": false,
+  "kickall": false,
+  "kickbybl": false,
+  "dadplus": true
+}
+# Backend does: Monitors 860 messages, kicks users with "aura" in their status
+
+# SCENARIO 5: N/A Mode (Kick disabled)
+# Frontend sends:
+{
+  "kickrc": "code",
+  "kickmode": true,
+  "modena": true,
+  "kickall": false,
+  "kickbybl": false,
+  "dadplus": false
+}
+# Backend does: WS5 may connect but kick logic is completely disabled
+
+# SCENARIO 6: Kick Mode Disabled (No kick account)
+# Frontend sends:
+{
+  "kickrc": "",
+  "kickmode": false
+}
+# Backend does: WS5 doesn't connect at all
+
+
+# ========================================
+# IMPORTANT: ATTACK vs KICK MODE
+# ========================================
+#
+# ATTACK MODE (WebSocket 1-4):
+# - Uses rc1, rc2, rc3, rc4 (or rcl1-4)
+# - Attacks users in "blacklist" and "gangblacklist"
+# - This is NOT kick mode!
+#
+# KICK MODE (WebSocket 5):
+# - Uses "kickrc" (separate recovery code)
+# - Only kicks if kickall=true, kickbybl=true, or dadplus=true
+# - Uses "kblacklist" and "kgangblacklist" for kick targets
+#
+# IF YOU WANT ONLY KICK MODE (NO ATTACKS):
+# - Set rc1="", rc2="", rc3="", rc4="" (empty attack codes)
+# - Set kickrc="your_kick_code"
+# - Set blacklist="" and gangblacklist="" (empty)
+# - Configure kick options (kickall, kickbybl, dadplus)
+#
+# EXAMPLE: Only kick mode, no attacks, no kicking
+{
+  "rc1": "",
+  "rc2": "",
+  "rc3": "",
+  "rc4": "",
+  "kickrc": "your_kick_code",
+  "kickmode": true,
+  "kickall": false,
+  "kickbybl": false,
+  "dadplus": false,
+  "blacklist": "",
+  "gangblacklist": ""
+}
+# Result: Only WS5 connects, monitors but doesn't kick

@@ -134,10 +134,12 @@ jobs:
           echo "✅ All required files present"
           
           # Start BEST in background (use headless script for Linux)
+          # The HEADLESS env var is already set above, npm run headless will use it
+          echo "🚀 Starting BEST with HEADLESS=true (no GUI window)"
           nohup npm run headless > ../../best-server.log 2>&1 &
           BEST_PID=$!
-          echo "BEST started with PID: $BEST_PID"
-          echo "Using npm run headless (Linux version)"
+          echo "✅ BEST started with PID: $BEST_PID"
+          echo "📝 Using npm run headless (Linux version with --no-sandbox)"
           
           # Wait for server to start
           echo "Waiting for API server to start..."

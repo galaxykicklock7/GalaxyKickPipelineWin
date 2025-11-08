@@ -6,7 +6,9 @@
   "scripts": {
     "start": "electron .",
     "headless": "HEADLESS=true electron . --no-sandbox",
-    "headless-win": "set HEADLESS=true && electron ."
+    "headless-win": "set HEADLESS=true && electron .",
+    "headless-api": "node start-headless.js",
+    "headless-windows": "start-headless-windows.bat"
   },
   "author": "druggist",
   "license": "MIT",

