@@ -391,11 +391,6 @@ class FinalCompleteGameLogic {
   // JOIN Handler #1 - Attack mode (immediate attack on blacklist match)
   handleJoinAttackMode(ws, snippets, text) {
     try {
-      if (!this.config.exitting) {
-        this.addLog(this.wsNumber, `⚠️ JOIN attack disabled (exitting=false)`);
-        return;
-      }
-
       const data = text.toLowerCase();
       const blacklistfull = (this.config.blacklist || "").toLowerCase();
       const blacklist = blacklistfull.split("\n").filter(b => b.trim());
