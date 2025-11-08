@@ -376,6 +376,16 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
     const text = data.toString();
     const snippets = text.split(" ");
     
+    // Debug: Log ALL messages when auto-release is enabled
+    if (appState.config.autorelease && HEADLESS_MODE) {
+      console.log(`DEBUG ws${wsNumber} ALL messages:`, snippets.slice(0, 5).join(' '));
+    }
+    
+    // Debug: Log important messages
+    if (snippets[0] === "900" || snippets[0] === "HAAAPSI" || snippets[0] === "999" || (snippets[1] === "PRISON")) {
+      console.log(`DEBUG ws${wsNumber} IMPORTANT:`, snippets[0], snippets[1], snippets[2]);
+    }
+    
     // Handle HAAAPSI - MUST SAVE IT!
     if (snippets[0] === "HAAAPSI") {
       savedHaaapsi = snippets[1]; // Save for later use in REGISTER
@@ -419,12 +429,26 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
     
     // Handle connection success
     if (snippets[0] === "999") {
+      console.log(`DEBUG ws${wsNumber}: Got 999 (authenticated), auto-escape enabled:`, appState.config.autorelease);
       ws.send("FWLISTVER 0\r\n");
       ws.send("ADDONS 0 0\r\n");
       ws.send("MYADDONS 0 0\r\n");
       ws.send("PHONE 1366 768 0 2 :chrome 113.0.0.0\r\n");
-      ws.send("JOIN\r\n");
-      addLog(wsNumber, `Successfully joined game`);
+      
+      const planet = appState.config.planet;
+      if (planet && planet !== "") {
+        ws.send(`JOIN ${planet}\r\n`);
+        addLog(wsNumber, `Successfully joined game. Joining ${planet}`);
+      } else {
+        ws.send("JOIN\r\n");
+        addLog(wsNumber, `Successfully joined game`);
+      }
+      
+      // Check prison status after connecting if auto-release is enabled
+      if (appState.config.autorelease) {
+        console.log(`DEBUG ws${wsNumber}: Auto-release enabled, checking prison status`);
+        // Prison check will happen via 900 message handler
+      }
     }
     
     // Handle PING - CRITICAL! Must respond or server disconnects
@@ -437,6 +461,11 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
     
     // Handle 900 - User joining planet (CRITICAL FOR AUTO-ATTACK/KICK)
     if (snippets[0] === "900") {
+      console.log(`DEBUG ws${wsNumber}: 900 message received, planet:`, snippets[1], 'auto-escape enabled:', appState.config.autorelease);
+      const plnt = snippets[1];
+      if (appState.config.autorelease && plnt && plnt.slice(0, 6) === "Prison") {
+        console.log(`DEBUG ws${wsNumber} autorelease: Prison detected, triggering escape`);
+      }
       gameLogic.handle900Message(ws, snippets, text);
     }
     

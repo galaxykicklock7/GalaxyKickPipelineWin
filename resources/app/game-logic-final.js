@@ -177,7 +177,12 @@ class FinalCompleteGameLogic {
       const blacklist = blacklistfull.split("\n").filter(b => b.trim());
       const gangblacklistfull = (this.config.gangblacklist || "").toLowerCase();
       const gangblacklist = gangblacklistfull.split("\n").filter(g => g.trim());
-      const timing = parseInt(this.config[`attack${this.wsNumber}`] || 1940);
+      
+      // Timer shift: use average of attack + waiting when enabled
+      const attackTime = parseInt(this.config[`attack${this.wsNumber}`] || 1940);
+      const waitingTime = parseInt(this.config[`waiting${this.wsNumber}`] || 1910);
+      const timing = this.config.timershift ? Math.round((attackTime + waitingTime) / 2) : attackTime;
+      const timingLabel = this.config.timershift ? "Auto" : "Attack";
 
       // Process username blacklist
       if (blacklistfull) {
@@ -237,7 +242,7 @@ class FinalCompleteGameLogic {
         this.useridtarget = userid;
         this.status = "attack";
         
-        this.addLog(this.wsNumber, `⚡ Will attack ${targetname} in ${timing}ms`);
+        this.addLog(this.wsNumber, `⚡ ${timingLabel} ${targetname} in ${timing}ms`);
 
         this.timeout = setTimeout(() => {
           if (ws.readyState === ws.OPEN) {
@@ -320,7 +325,11 @@ class FinalCompleteGameLogic {
         return false;
       });
 
-      const timing = parseInt(this.config[`attack${this.wsNumber}`] || 1940);
+      // Timer shift: use average of attack + waiting when enabled
+      const attackTime = parseInt(this.config[`attack${this.wsNumber}`] || 1940);
+      const waitingTime = parseInt(this.config[`waiting${this.wsNumber}`] || 1910);
+      const timing = this.config.timershift ? Math.round((attackTime + waitingTime) / 2) : attackTime;
+      const timingLabel = this.config.timershift ? "Auto" : "Attack";
 
       if (!this.userFound && userids.length > 0) {
         const rand = Math.floor(Math.random() * userids.length);
@@ -333,7 +342,7 @@ class FinalCompleteGameLogic {
         this.useridtarget = userid;
         this.status = "attack";
         
-        this.addLog(this.wsNumber, `⚡ [LOW SEC] Attack ${username} in ${timing}ms`);
+        this.addLog(this.wsNumber, `⚡ [LOW SEC] ${timingLabel} ${username} in ${timing}ms`);
 
         this.timeout = setTimeout(() => {
           if (ws.readyState === ws.OPEN) {
@@ -441,8 +450,12 @@ class FinalCompleteGameLogic {
 
       // Attack if found
       if (foundMatch && !this.userFound) {
-        const timing = parseInt(this.config[`attack${this.wsNumber}`] || 1940);
-        const waiting = parseInt(this.config[`waiting${this.wsNumber}`] || 1910);
+        // Timer shift: use average of attack + waiting when enabled
+        const attackTime = parseInt(this.config[`attack${this.wsNumber}`] || 1940);
+        const waitingTime = parseInt(this.config[`waiting${this.wsNumber}`] || 1910);
+        const timing = this.config.timershift ? Math.round((attackTime + waitingTime) / 2) : attackTime;
+        const timingLabel = this.config.timershift ? "Auto" : "Attack";
+        const waiting = waitingTime;
         
         this.userFound = true;
         this.useridattack = matchedId;
@@ -450,7 +463,7 @@ class FinalCompleteGameLogic {
         this.status = "attack";
         
         this.addLog(this.wsNumber, `🎯 Target joined: ${matchedUser}`);
-        this.addLog(this.wsNumber, `⚡ Attack in ${timing}ms`);
+        this.addLog(this.wsNumber, `⚡ ${timingLabel} in ${timing}ms`);
 
         this.timeout = setTimeout(() => {
           if (ws.readyState === ws.OPEN) {
@@ -495,7 +508,12 @@ class FinalCompleteGameLogic {
         }
         
         const gangblacklist = (this.config.gangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
-        const timing = parseInt(this.config[`waiting${this.wsNumber}`] || 1910);
+        
+        // Timer shift: use average of attack + waiting when enabled
+        const attackTime = parseInt(this.config[`attack${this.wsNumber}`] || 1940);
+        const waitingTime = parseInt(this.config[`waiting${this.wsNumber}`] || 1910);
+        const timing = this.config.timershift ? Math.round((attackTime + waitingTime) / 2) : waitingTime;
+        const timingLabel = this.config.timershift ? "Auto" : "Defense";
         
         gangblacklist.forEach((element) => {
           if (element && username.includes(element)) {
@@ -503,7 +521,7 @@ class FinalCompleteGameLogic {
             this.status = "defense";
             this.userFound = true;
             
-            this.addLog(this.wsNumber, `🛡️ Defense mode: ${username} in ${timing}ms`);
+            this.addLog(this.wsNumber, `🛡️ ${timingLabel}: ${username} in ${timing}ms`);
 
             this.timeout = setTimeout(() => {
               if (ws.readyState === ws.OPEN) {
@@ -674,6 +692,12 @@ class FinalCompleteGameLogic {
       const data = text.toLowerCase();
       const whitelist = (this.config.blacklist || "").toLowerCase().split("\n").filter(w => w.trim());
       const gangwhitelist = (this.config.gangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+      
+      // Timer shift: use average of attack + waiting when enabled
+      const attackTime = parseInt(this.config[`attack${this.wsNumber}`] || 1940);
+      const waitingTime = parseInt(this.config[`waiting${this.wsNumber}`] || 1910);
+      const timing = this.config.timershift ? Math.round((attackTime + waitingTime) / 2) : waitingTime;
+      const timingLabel = this.config.timershift ? "Auto" : "Defense";
 
       let isWhitelisted = false;
 
@@ -696,33 +720,30 @@ class FinalCompleteGameLogic {
         if (parts.length >= 3) {
           const matchedId = parts[1];
           const matchedUser = parts[2] || "unknown";
-          const timing = parseInt(this.config[`attack${this.wsNumber}`] || 1940);
-          const waiting = parseInt(this.config[`waiting${this.wsNumber}`] || 1910);
           
           this.userFound = true;
           this.useridattack = matchedId;
           this.useridtarget = matchedId;
-          this.status = "attack";
+          this.status = "defense";
           
-          this.addLog(this.wsNumber, `🎯 [LOW SEC] Non-whitelisted user: ${matchedUser}`);
+          this.addLog(this.wsNumber, `🎯 [LOW SEC] ${timingLabel} ${matchedUser} in ${timing}ms`);
 
           this.timeout = setTimeout(() => {
             if (ws.readyState === ws.OPEN) {
               ws.send(`ACTION 3 ${this.useridattack}\r\n`);
-              this.addLog(this.wsNumber, `⚔️ [LOW SEC] Attacked!`);
+              this.addLog(this.wsNumber, `⚔️ [LOW SEC] Attacked ${matchedUser}!`);
               
-              if (!this.config.sleeping || !this.config.autorelease) {
-                setTimeout(() => {
-                  if (ws.readyState === ws.OPEN) {
-                    ws.send("QUIT :ds\r\n");
-                    this.addLog(this.wsNumber, `🚪 QUIT`);
-                    
-                    // Trigger auto-reconnect if sleeping mode is enabled
-                    if (this.config.sleeping) {
-                      this.OffSleep(ws);
-                    }
-                  }
-                }, waiting);
+              // Only send QUIT if auto-release is disabled, or if sleep mode is enabled
+              if (!this.config.autorelease || this.config.sleeping) {
+                ws.send("QUIT :ds\r\n");
+                this.addLog(this.wsNumber, `🚪 QUIT`);
+              } else {
+                this.addLog(this.wsNumber, `🧍 Standing (auto-release enabled)`);
+              }
+              
+              // Trigger auto-reconnect if sleeping mode is enabled
+              if (this.config.sleeping) {
+                this.OffSleep(ws);
               }
             }
           }, timing);
@@ -784,13 +805,21 @@ class FinalCompleteGameLogic {
         this.threesec = true;
         this.addLog(this.wsNumber, `⏰ 3-second event detected`);
         
-        // Timer shift logic
+        // Timer shift logic: When auto interval is enabled, adjust both attack AND defense
         if (this.config.timershift) {
-          if (this.status === "attack") {
-            this.incrementAttack();
-          } else if (this.status === "defense") {
-            this.incrementDefence();
-          }
+          this.incrementAttack();
+          this.incrementDefence();
+        }
+      }
+      
+      // Check for success event (TIMER SHIFT DECREMENT!)
+      if (snippets.length >= 4 && snippets[3] === "allows") {
+        this.addLog(this.wsNumber, `✅ Imprisoned successfully`);
+        
+        // Timer shift logic: When auto interval is enabled, adjust both attack AND defense
+        if (this.config.timershift) {
+          this.decrementAttack();
+          this.decrementDefence();
         }
       }
 

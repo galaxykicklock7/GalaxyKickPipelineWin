@@ -114,6 +114,7 @@ if (localStorage.getItem("attack1") != null) {
   document.getElementById("maxdef").value = localStorage.getItem("maxdef");
   document.getElementById("minatk").value = localStorage.getItem("minatk");
   document.getElementById("maxatk").value = localStorage.getItem("maxatk");
+  document.getElementById("reconnect").value = localStorage.getItem("reconnect");
 }
 
 function incrementAttack() {
@@ -125,6 +126,8 @@ function incrementAttack() {
   }
   if (value <= document.getElementById("maxatk").value) {
     document.getElementById('attack1').value = value;
+    log1.innerHTML += "Timer adjusted: Attack " + value + "ms<br>";
+    log1.scrollTop = log1.scrollHeight;
   }
 }
 function decrementAttack() {
@@ -136,6 +139,8 @@ function decrementAttack() {
   }
   if (value >= document.getElementById("minatk").value) {
     document.getElementById('attack1').value = value;
+    log1.innerHTML += "Timer adjusted: Attack " + value + "ms<br>";
+    log1.scrollTop = log1.scrollHeight;
   }
 }
 function incrementDefence() {
@@ -147,6 +152,8 @@ function incrementDefence() {
   }
   if (value <= document.getElementById("maxdef").value) {
     document.getElementById('waiting1').value = value;
+    log1.innerHTML += "Timer adjusted: Defense " + value + "ms<br>";
+    log1.scrollTop = log1.scrollHeight;
   }
 }
 function decrementDefence() {
@@ -158,43 +165,244 @@ function decrementDefence() {
   }
   if (value >= document.getElementById("mindef").value) {
     document.getElementById('waiting1').value = value;
+    log1.innerHTML += "Timer adjusted: Defense " + value + "ms<br>";
+    log1.scrollTop = log1.scrollHeight;
+  }
+}
+
+function incrementAttack2() {
+  var value = parseInt(document.getElementById('attack2').value, 10);
+  value = isNaN(value) ? 0 : value;
+  incrementvalue = document.getElementById('incrementvalue').value;
+  for (let i = 0; i < incrementvalue; i++) {
+    value++;
+  }
+  if (value <= document.getElementById("maxatk").value) {
+    document.getElementById('attack2').value = value;
+    log2.innerHTML += "Timer adjusted: Attack " + value + "ms<br>";
+    log2.scrollTop = log2.scrollHeight;
+  }
+}
+function decrementAttack2() {
+  var value = parseInt(document.getElementById('attack2').value, 10);
+  value = isNaN(value) ? 0 : value;
+  decrementvalue = document.getElementById('decrementvalue').value;
+  for (let i = 0; i < decrementvalue; i++) {
+    value--;
+  }
+  if (value >= document.getElementById("minatk").value) {
+    document.getElementById('attack2').value = value;
+    log2.innerHTML += "Timer adjusted: Attack " + value + "ms<br>";
+    log2.scrollTop = log2.scrollHeight;
+  }
+}
+function incrementDefence2() {
+  var value = parseInt(document.getElementById('waiting2').value, 10);
+  value = isNaN(value) ? 0 : value;
+  incrementvalue = document.getElementById('incrementvalue').value;
+  for (let i = 0; i < incrementvalue; i++) {
+    value++;
+  }
+  if (value <= document.getElementById("maxdef").value) {
+    document.getElementById('waiting2').value = value;
+    log2.innerHTML += "Timer adjusted: Defense " + value + "ms<br>";
+    log2.scrollTop = log2.scrollHeight;
+  }
+}
+function decrementDefence2() {
+  var value = parseInt(document.getElementById('waiting2').value, 10);
+  value = isNaN(value) ? 0 : value;
+  decrementvalue = document.getElementById('decrementvalue').value;
+  for (let i = 0; i < decrementvalue; i++) {
+    value--;
+  }
+  if (value >= document.getElementById("mindef").value) {
+    document.getElementById('waiting2').value = value;
+    log2.innerHTML += "Timer adjusted: Defense " + value + "ms<br>";
+    log2.scrollTop = log2.scrollHeight;
+  }
+}
+
+function incrementAttack3() {
+  var value = parseInt(document.getElementById('attack3').value, 10);
+  value = isNaN(value) ? 0 : value;
+  incrementvalue = document.getElementById('incrementvalue').value;
+  for (let i = 0; i < incrementvalue; i++) {
+    value++;
+  }
+  if (value <= document.getElementById("maxatk").value) {
+    document.getElementById('attack3').value = value;
+    log3.innerHTML += "Timer adjusted: Attack " + value + "ms<br>";
+    log3.scrollTop = log3.scrollHeight;
+  }
+}
+function decrementAttack3() {
+  var value = parseInt(document.getElementById('attack3').value, 10);
+  value = isNaN(value) ? 0 : value;
+  decrementvalue = document.getElementById('decrementvalue').value;
+  for (let i = 0; i < decrementvalue; i++) {
+    value--;
+  }
+  if (value >= document.getElementById("minatk").value) {
+    document.getElementById('attack3').value = value;
+    log3.innerHTML += "Timer adjusted: Attack " + value + "ms<br>";
+    log3.scrollTop = log3.scrollHeight;
+  }
+}
+function incrementDefence3() {
+  var value = parseInt(document.getElementById('waiting3').value, 10);
+  value = isNaN(value) ? 0 : value;
+  incrementvalue = document.getElementById('incrementvalue').value;
+  for (let i = 0; i < incrementvalue; i++) {
+    value++;
+  }
+  if (value <= document.getElementById("maxdef").value) {
+    document.getElementById('waiting3').value = value;
+    log3.innerHTML += "Timer adjusted: Defense " + value + "ms<br>";
+    log3.scrollTop = log3.scrollHeight;
+  }
+}
+function decrementDefence3() {
+  var value = parseInt(document.getElementById('waiting3').value, 10);
+  value = isNaN(value) ? 0 : value;
+  decrementvalue = document.getElementById('decrementvalue').value;
+  for (let i = 0; i < decrementvalue; i++) {
+    value--;
+  }
+  if (value >= document.getElementById("mindef").value) {
+    document.getElementById('waiting3').value = value;
+    log3.innerHTML += "Timer adjusted: Defense " + value + "ms<br>";
+    log3.scrollTop = log3.scrollHeight;
+  }
+}
+
+function incrementAttack4() {
+  var value = parseInt(document.getElementById('attack4').value, 10);
+  value = isNaN(value) ? 0 : value;
+  incrementvalue = document.getElementById('incrementvalue').value;
+  for (let i = 0; i < incrementvalue; i++) {
+    value++;
+  }
+  if (value <= document.getElementById("maxatk").value) {
+    document.getElementById('attack4').value = value;
+    log4.innerHTML += "Timer adjusted: Attack " + value + "ms<br>";
+    log4.scrollTop = log4.scrollHeight;
+  }
+}
+function decrementAttack4() {
+  var value = parseInt(document.getElementById('attack4').value, 10);
+  value = isNaN(value) ? 0 : value;
+  decrementvalue = document.getElementById('decrementvalue').value;
+  for (let i = 0; i < decrementvalue; i++) {
+    value--;
+  }
+  if (value >= document.getElementById("minatk").value) {
+    document.getElementById('attack4').value = value;
+    log4.innerHTML += "Timer adjusted: Attack " + value + "ms<br>";
+    log4.scrollTop = log4.scrollHeight;
+  }
+}
+function incrementDefence4() {
+  var value = parseInt(document.getElementById('waiting4').value, 10);
+  value = isNaN(value) ? 0 : value;
+  incrementvalue = document.getElementById('incrementvalue').value;
+  for (let i = 0; i < incrementvalue; i++) {
+    value++;
+  }
+  if (value <= document.getElementById("maxdef").value) {
+    document.getElementById('waiting4').value = value;
+    log4.innerHTML += "Timer adjusted: Defense " + value + "ms<br>";
+    log4.scrollTop = log4.scrollHeight;
+  }
+}
+function decrementDefence4() {
+  var value = parseInt(document.getElementById('waiting4').value, 10);
+  value = isNaN(value) ? 0 : value;
+  decrementvalue = document.getElementById('decrementvalue').value;
+  for (let i = 0; i < decrementvalue; i++) {
+    value--;
+  }
+  if (value >= document.getElementById("mindef").value) {
+    document.getElementById('waiting4').value = value;
+    log4.innerHTML += "Timer adjusted: Defense " + value + "ms<br>";
+    log4.scrollTop = log4.scrollHeight;
   }
 }
 
 function OffSleep1() {
-    ws1.terminate();
+    if (ws1 && typeof ws1.terminate === 'function') {
+      // Clear event handlers before terminating
+      ws1.onopen = null;
+      ws1.onmessage = null;
+      ws1.onerror = null;
+      ws1.onclose = null;
+      ws1.terminate();
+    }
     setTimeout(() => {
       ws1on = false;
-      var click_event = new CustomEvent("click");
-      var btn_element = document.querySelector("#btn-connect");
-      btn_element.dispatchEvent(click_event);
+      ws1 = null;
+      if (work) {
+        var click_event = new CustomEvent("click");
+        var btn_element = document.querySelector("#btn-connect");
+        btn_element.dispatchEvent(click_event);
+      }
     }, parseInt(document.getElementById("reconnect").value));
   }
   function OffSleep2() {
-    ws2.terminate();
+    if (ws2 && typeof ws2.terminate === 'function') {
+      // Clear event handlers before terminating
+      ws2.onopen = null;
+      ws2.onmessage = null;
+      ws2.onerror = null;
+      ws2.onclose = null;
+      ws2.terminate();
+    }
     setTimeout(() => {
-      ws1on = false;
-      var click_event = new CustomEvent("click");
-      var btn_element = document.querySelector("#btn-connect");
-      btn_element.dispatchEvent(click_event);
+      ws2on = false;
+      ws2 = null;
+      if (work) {
+        var click_event = new CustomEvent("click");
+        var btn_element = document.querySelector("#btn-connect");
+        btn_element.dispatchEvent(click_event);
+      }
     }, parseInt(document.getElementById("reconnect").value));
   }
   function OffSleep3() {
-    ws3.terminate();
+    if (ws3 && typeof ws3.terminate === 'function') {
+      // Clear event handlers before terminating
+      ws3.onopen = null;
+      ws3.onmessage = null;
+      ws3.onerror = null;
+      ws3.onclose = null;
+      ws3.terminate();
+    }
     setTimeout(() => {
-      ws1on = false;
-      var click_event = new CustomEvent("click");
-      var btn_element = document.querySelector("#btn-connect");
-      btn_element.dispatchEvent(click_event);
+      ws3on = false;
+      ws3 = null;
+      if (work) {
+        var click_event = new CustomEvent("click");
+        var btn_element = document.querySelector("#btn-connect");
+        btn_element.dispatchEvent(click_event);
+      }
     }, parseInt(document.getElementById("reconnect").value));
   }
   function OffSleep4() {
-    ws4.terminate();
+    if (ws4 && typeof ws4.terminate === 'function') {
+      // Clear event handlers before terminating
+      ws4.onopen = null;
+      ws4.onmessage = null;
+      ws4.onerror = null;
+      ws4.onclose = null;
+      ws4.terminate();
+    }
     setTimeout(() => {
-      ws1on = false;
-      var click_event = new CustomEvent("click");
-      var btn_element = document.querySelector("#btn-connect");
-      btn_element.dispatchEvent(click_event);
+      ws4on = false;
+      ws4 = null;
+      if (work) {
+        var click_event = new CustomEvent("click");
+        var btn_element = document.querySelector("#btn-connect");
+        btn_element.dispatchEvent(click_event);
+      }
     }, parseInt(document.getElementById("reconnect").value));
   }
 
@@ -294,7 +502,7 @@ btn.addEventListener("click", () => {
 
   const countOccurrences = (arr, val) => arr.reduce((a, v) => (v === val ? a + 1 : a), 0);
 
-  try {
+  if (ws1) {
     ws1.onopen = () => {
       ws1.send(":en IDENT " + device + " -2 4030 1 2 :GALA\r\n");
       rc1 = document.getElementById("rc1").value;
@@ -318,10 +526,9 @@ btn.addEventListener("click", () => {
         rc = rc1;
       }
     }
-  } catch (error) {
   }
 
-  try {
+  if (ws2) {
     ws2.onopen = () => {
       ws2.send(":en IDENT " + device + " -2 4030 1 2 :GALA\r\n");
       rc2 = document.getElementById("rc2").value;
@@ -345,10 +552,9 @@ btn.addEventListener("click", () => {
         rcc = rc2;
       }
     }
-  } catch (error) {
   }
 
-  try {
+  if (ws3) {
     ws3.onopen = () => {
       ws3.send(":en IDENT " + device + " -2 4030 1 2 :GALA\r\n");
       rc3 = document.getElementById("rc3").value;
@@ -372,11 +578,9 @@ btn.addEventListener("click", () => {
         rccc = rc3;
       }
     }
-  } catch (error) {
   }
 
-
-  try {
+  if (ws4) {
     ws4.onopen = () => {
       ws4.send(":en IDENT " + device + " -2 4030 1 2 :GALA\r\n");
       rc4 = document.getElementById("rc4").value;
@@ -400,27 +604,35 @@ btn.addEventListener("click", () => {
         rcccc = rc4;
       }
     }
-  } catch (error) {
-
   }
 
-  try {
+  if (ws5) {
     ws5.onopen = () => {
       ws5.send(":en IDENT " + device + " -2 4030 1 2 :GALA\r\n");
       kickrc = document.getElementById("kickrc").value;
     }
-  } catch (error) {
-    console.log(error);
   }
 
 
-  try {
+  if (ws1) {
     ws1.onmessage = (event) => {
       var text = event.data;
       var snippets = text.split(" ");
+      
+      // Debug: Log ALL messages (temporary for debugging)
+      if (autoescape.checked) {
+        console.log('DEBUG ws1 ALL messages:', snippets.slice(0, 5).join(' '));
+      }
+      
+      // Debug: Log important messages
+      if (snippets[0] === "900" || snippets[0] === "HAAAPSI" || snippets[0] === "999" || (snippets[1] === "PRISON")) {
+        console.log('DEBUG ws1 IMPORTANT:', snippets[0], snippets[1], snippets[2]);
+      }
 
       if (snippets[0] === "HAAAPSI") {
         haaapsi1 = snippets[1];
+        // Clear pending timeout to prevent ghost actions
+        clearTimeout(timeout1);
         userFound1 = false;
         status1 = "";
         threesec1 = false;
@@ -429,6 +641,7 @@ btn.addEventListener("click", () => {
         attackids1 = [];
         attacknames1 = [];
         useridattack1 = "";
+        useridtarget1 = "";
         lowtime = 0;
         ws1.send("RECOVER " + rc + "\r\n");
       }
@@ -443,13 +656,34 @@ btn.addEventListener("click", () => {
         ws1.send("USER " + id1 + " " + password + " " + finalusername1[0] + " " + temp + "\r\n");
       }
       if (snippets[0] === "999") {
+        console.log('DEBUG ws1: Got 999 (authenticated), auto-escape enabled:', autoescape.checked);
         ws1.send("FWLISTVER 0\r\n");
         ws1.send("ADDONS 0 0\r\n");
         ws1.send("MYADDONS 0 0\r\n");
         ws1.send("PHONE 1366 768 0 2 :chrome 113.0.0.0\r\n");
-        ws1.send("JOIN\r\n");
-        log1.innerHTML = "Connection established.<br>";
+        var planet = document.getElementById("planet").value;
+        if (planet && planet !== "") {
+          ws1.send("JOIN " + planet + "\r\n");
+          log1.innerHTML = "Connection established. Joining " + planet + "<br>";
+        } else {
+          ws1.send("JOIN\r\n");
+          log1.innerHTML = "Connection established.<br>";
+        }
         log1.scrollTop = log1.scrollHeight;
+        
+        // Check prison status after connecting if auto-release is enabled
+        if (autoescape.checked) {
+          console.log('DEBUG ws1: Auto-release enabled, will check prison status in 2 seconds');
+          setTimeout(() => {
+            // Trigger escape check - the escape function will handle if not in prison
+            console.log('DEBUG ws1: Checking if imprisoned...');
+            var escape = document.getElementById("releasenow");
+            if (escape) {
+              escape.click();
+              console.log('DEBUG ws1: Escape button clicked (will escape if in prison)');
+            }
+          }, 2000);
+        }
       }
 
       if (snippets[0] === "353" && snippets[3].slice(0, 6) !== "Prison" && (document.getElementById("lowsecmode").checked != true)) {
@@ -458,7 +692,8 @@ btn.addEventListener("click", () => {
         var blacklist = document.getElementById("blacklist").value.toLowerCase().split("\n");
         var gangblacklistfull = document.getElementById("gangblacklist").value.toLowerCase();
         var gangblacklist = document.getElementById("gangblacklist").value.toLowerCase().split("\n");
-        var timing = (parseInt(document.getElementById("attack1").value));
+        var timing = timershift.checked ? Math.round((parseInt(document.getElementById("attack1").value) + parseInt(document.getElementById("waiting1").value)) / 2) : (parseInt(document.getElementById("attack1").value));
+        var timingLabel = timershift.checked ? "Auto" : "Attack";
         if (blacklistfull !== "") {
           blacklist.forEach((element) => {
             if (data.includes(element)) {
@@ -501,7 +736,7 @@ btn.addEventListener("click", () => {
           useridattack1 = userid;
           useridtarget1 = userid;
           status1 = "attack";
-          log1.innerHTML += "Attack " + targetnames1[rand] + " in " + timing + "ms<br>";
+          log1.innerHTML += timingLabel + " " + targetnames1[rand] + " in " + timing + "ms<br>";
           log1.scrollTop = log1.scrollHeight;
 
 
@@ -570,7 +805,8 @@ btn.addEventListener("click", () => {
         });
 
 
-        var timing = (parseInt(document.getElementById("attack1").value));
+        var timing = timershift.checked ? Math.round((parseInt(document.getElementById("attack1").value) + parseInt(document.getElementById("waiting1").value)) / 2) : (parseInt(document.getElementById("attack1").value));
+        var timingLabel = timershift.checked ? "Auto" : "Attack";
 
         if (!userFound1 && userids.length != 0) {
           var rand = Math.floor(Math.random() * userids.length);
@@ -579,7 +815,7 @@ btn.addEventListener("click", () => {
           useridattack1 = userid;
           useridtarget1 = userid;
           status1 = "attack";
-          log1.innerHTML += "Attack " + membersarr[membersarr.indexOf(userid) - 1] + " in " + (timing) + "ms<br>";
+          log1.innerHTML += timingLabel + " " + membersarr[membersarr.indexOf(userid) - 1] + " in " + (timing) + "ms<br>";
           log1.scrollTop = log1.scrollHeight;
 
 
@@ -613,15 +849,17 @@ btn.addEventListener("click", () => {
           var text = event.data.toLowerCase();
           var member = text.split(" ");
           var blacklist = document.getElementById("blacklist").value.toLowerCase().split("\n");
-          var timing = parseInt(document.getElementById("waiting1").value);
+          var timing = timershift.checked ? Math.round((parseInt(document.getElementById("attack1").value) + parseInt(document.getElementById("waiting1").value)) / 2) : parseInt(document.getElementById("waiting1").value);
+          var timingLabel = timershift.checked ? "Auto" : "Defense";
 
-          blacklist.forEach((element) => {
+          for (let element of blacklist) {
+            if (userFound1) break; // Stop if already found a target
             if (member.includes(element.toLowerCase())) {
               var memberindex = member.indexOf(element.toLowerCase());
               var userid = member[memberindex + 1];
               useridtarget1 = userid;
               status1 = "defense";
-              log1.innerHTML += "Defense " + element + " in " + (timing) + "ms<br>";
+              log1.innerHTML += timingLabel + " " + element + " in " + (timing) + "ms<br>";
               log1.scrollTop = log1.scrollHeight;
               userFound1 = true;
 
@@ -650,7 +888,7 @@ btn.addEventListener("click", () => {
               }, timing);
 
             }
-          });
+          }
         }
       }
 
@@ -659,14 +897,16 @@ btn.addEventListener("click", () => {
           var text = event.data.toLowerCase();
           var member = text.split(" ");
           var gangblacklist = document.getElementById("gangblacklist").value.toLowerCase().split("\n");
-          var timing = parseInt(document.getElementById("waiting1").value);
-          gangblacklist.forEach((element) => {
+          var timing = timershift.checked ? Math.round((parseInt(document.getElementById("attack1").value) + parseInt(document.getElementById("waiting1").value)) / 2) : parseInt(document.getElementById("waiting1").value);
+          var timingLabel = timershift.checked ? "Auto" : "Defense";
+          for (let element of gangblacklist) {
+            if (userFound1) break; // Stop if already found a target
             if (member.includes(element.toLowerCase())) {
               var memberindex = member.indexOf(element.toLowerCase());
               var userid = member[memberindex + 2];
               useridtarget1 = userid;
               status1 = "defense";
-              log1.innerHTML += "Defense " + member[memberindex + 1] + " in " + (timing) + "ms<br>";
+              log1.innerHTML += timingLabel + " " + member[memberindex + 1] + " in " + (timing) + "ms<br>";
               log1.scrollTop = log1.scrollHeight;
               userFound1 = true;
 
@@ -696,7 +936,7 @@ btn.addEventListener("click", () => {
               }, timing);
 
             }
-          });
+          }
         }
       }
 
@@ -711,7 +951,8 @@ btn.addEventListener("click", () => {
 
           var whitelist = document.getElementById("blacklist").value.split("\n");
           var gangwhitelist = document.getElementById("gangblacklist").value.split("\n");
-          var timing = parseInt(document.getElementById("waiting1").value);
+          var timing = timershift.checked ? Math.round((parseInt(document.getElementById("attack1").value) + parseInt(document.getElementById("waiting1").value)) / 2) : parseInt(document.getElementById("waiting1").value);
+          var timingLabel = timershift.checked ? "Auto" : "Defense";
           var indexself = snipfinal.indexOf(useridg1);
           snipfinal[indexself] = "-";
           whitelist.forEach((element) => {
@@ -732,7 +973,7 @@ btn.addEventListener("click", () => {
               var userid = snipfinal[3];
               useridtarget1 = userid;
               status1 = "defense";
-              log1.innerHTML += "Defense in " + (timing) + "ms<br>";
+              log1.innerHTML += timingLabel + " in " + (timing) + "ms<br>";
               log1.scrollTop = log1.scrollHeight;
               userFound1 = true;
               timeout1 = setTimeout(() => {
@@ -786,11 +1027,23 @@ btn.addEventListener("click", () => {
           var logmsg = "3 second error."
           log1.innerHTML += logmsg.fontcolor("#ff0f0f") + "<br>";
           log1.scrollTop = log1.scrollHeight;
+          // Increment timer on 3s error
+          if (timershift.checked) {
+            // When auto interval is enabled, adjust both attack AND defense
+            incrementAttack();
+            incrementDefence();
+          }
         }
         else if (snippets[3] === "allows") {
           var logmsg = "Imprisoned successfully."
           log1.innerHTML += logmsg.fontcolor("#0fff7a") + "<br>";
           log1.scrollTop = log1.scrollHeight;
+          // Decrement timer on success
+          if (timershift.checked) {
+            // When auto interval is enabled, adjust both attack AND defense
+            decrementAttack();
+            decrementDefence();
+          }
         }
         else {
           log1.innerHTML += text + "<br>";
@@ -842,44 +1095,6 @@ btn.addEventListener("click", () => {
         });
       }
 
-      if (snippets[0] === "850" && snippets[6] === "3s") {
-        threesec1 = true;
-        if (timershift.checked) {
-          if (status1 === "attack") {
-            incrementAttack();
-          }
-          else if (status1 === "defense") {
-            incrementDefence();
-          }
-        }
-      }
-
-      else if (snippets[0] === "PART" && snippets[1] === useridtarget1) {
-        if (!threesec1) {
-          if (timershift.checked) {
-            if (status1 === "attack") {
-              decrementAttack();
-            }
-            else if (status1 === "defense") {
-              decrementDefence();
-            }
-          }
-        }
-      }
-
-      else if (snippets[0] === "SLEEP" && snippets[1] === `${useridtarget1}\r\n`) {
-        if (!threesec1) {
-          if (timershift.checked) {
-            if (status1 === "attack") {
-              decrementAttack();
-            }
-            else if (status1 === "defense") {
-              decrementDefence();
-            }
-          }
-        }
-      }
-     
       if (snippets[0] === "PART" && targetids1.indexOf(snippets[1]) != -1) {
         var index = targetids1.indexOf(snippets[1]);
 
@@ -925,21 +1140,26 @@ btn.addEventListener("click", () => {
       }
 
       if (autoescape.checked) {
-        console.log('DEBUG ws1 autorelease: received message pieces', snippets[0], snippets[1], snippets[2]);
         if (snippets[0] === "900") {
           var plnt = snippets[1];
-          console.log('DEBUG ws1 autorelease: plnt=', plnt, 'slice(0,6)=', plnt.slice(0,6));
-          if (plnt.slice(0, 6) === "Prison") {
-            console.log('DEBUG ws1 autorelease: match Prison, calling releasenow.click()');
+          console.log('DEBUG ws1: Got 900 message, planet=', plnt);
+          if (plnt && plnt.slice(0, 6) === "Prison") {
+            console.log('DEBUG ws1 autorelease: Prison detected, triggering escape');
             // Add a small delay before triggering escape to ensure proper state
             setTimeout(() => {
               var escape = document.getElementById("releasenow");
-              escape.click();
+              if (escape) {
+                escape.click();
+                log1.innerHTML += "Auto-release triggered<br>";
+                log1.scrollTop = log1.scrollHeight;
+              } else {
+                console.log('ERROR ws1: releasenow button not found');
+              }
               var planet = document.getElementById("planet").value;
               setTimeout(() => {
                 if (ws1 && ws1.readyState === 1) {
                   ws1.send(`JOIN ${planet}\r\n`);
-                  console.log('DEBUG ws1 autorelease: rejoined after 3s');
+                  console.log('DEBUG ws1 autorelease: rejoined planet after escape');
                 } else {
                   console.log('DEBUG ws1 autorelease: ws1 not connected, cannot rejoin');
                 }
@@ -947,44 +1167,49 @@ btn.addEventListener("click", () => {
             }, 1000);
           }
         } else if (snippets[1] === "PRISON" && snippets[2] === "0") {
-          console.log('DEBUG ws1 autorelease: match PRISON 0, calling releasenow.click()');
+          console.log('DEBUG ws1 autorelease: PRISON 0 detected, triggering escape');
           // Add a small delay before triggering escape to ensure proper state
           setTimeout(() => {
             var escape = document.getElementById("releasenow");
-            escape.click();
+            if (escape) {
+              escape.click();
+              log1.innerHTML += "Auto-release triggered<br>";
+              log1.scrollTop = log1.scrollHeight;
+            } else {
+              console.log('ERROR ws1: releasenow button not found');
+            }
             var planet = document.getElementById("planet").value;
             setTimeout(() => {
               if (ws1 && ws1.readyState === 1) {
                 ws1.send(`JOIN ${planet}\r\n`);
-                console.log('DEBUG ws1 autorelease: rejoined after 3s');
+                console.log('DEBUG ws1 autorelease: rejoined planet after escape');
               } else {
                 console.log('DEBUG ws1 autorelease: ws1 not connected, cannot rejoin');
               }
             }, 3000);
           }, 1000);
-        } else {
-          console.log('DEBUG ws1 autorelease: no match for 900 or PRISON');
         }
       }
 
       if (snippets[0] === "900") {
+        console.log('DEBUG ws1: 900 message received, planet:', snippets[1], 'auto-escape enabled:', autoescape.checked);
         log1.innerHTML += `Current Planet: ${snippets[1]}<br>`
         log1.scrollTop = log1.scrollHeight;
 
       }
 
     }
-  } catch (error) {
-
   }
 
-  try {
+  if (ws2) {
     ws2.onmessage = (event) => {
       var text = event.data;
       var snippets = text.split(" ");
 
       if (snippets[0] === "HAAAPSI") {
         haaapsi2 = snippets[1];
+        // Clear pending timeout to prevent ghost actions
+        clearTimeout(timeout2);
         userFound2 = false;
         status2 = "";
         threesec2 = false;
@@ -993,6 +1218,7 @@ btn.addEventListener("click", () => {
         attackids2 = [];
         attacknames2 = [];
         useridattack2 = "";
+        useridtarget2 = "";
         lowtime = 0;
         ws2.send("RECOVER " + rcc + "\r\n");
       }
@@ -1011,9 +1237,25 @@ btn.addEventListener("click", () => {
         ws2.send("ADDONS 0 0\r\n");
         ws2.send("MYADDONS 0 0\r\n");
         ws2.send("PHONE 1366 768 0 2 :chrome 113.0.0.0\r\n");
-        ws2.send("JOIN\r\n");
-        log2.innerHTML = "Connection established.<br>";
+        var planet = document.getElementById("planet").value;
+        if (planet && planet !== "") {
+          ws2.send("JOIN " + planet + "\r\n");
+          log2.innerHTML = "Connection established. Joining " + planet + "<br>";
+        } else {
+          ws2.send("JOIN\r\n");
+          log2.innerHTML = "Connection established.<br>";
+        }
         log2.scrollTop = log2.scrollHeight;
+        
+        // Check prison status after connecting if auto-release is enabled
+        if (autoescape.checked) {
+          setTimeout(() => {
+            var escape = document.getElementById("releasenow");
+            if (escape) {
+              escape.click();
+            }
+          }, 2000);
+        }
       }
 
       if (snippets[0] === "353" && snippets[3].slice(0, 6) !== "Prison" && (document.getElementById("lowsecmode").checked != true)) {
@@ -1022,7 +1264,8 @@ btn.addEventListener("click", () => {
         var blacklist = document.getElementById("blacklist").value.toLowerCase().split("\n");
         var gangblacklistfull = document.getElementById("gangblacklist").value.toLowerCase();
         var gangblacklist = document.getElementById("gangblacklist").value.toLowerCase().split("\n");
-        var timing = (parseInt(document.getElementById("attack2").value));
+        var timing = timershift.checked ? Math.round((parseInt(document.getElementById("attack2").value) + parseInt(document.getElementById("waiting2").value)) / 2) : (parseInt(document.getElementById("attack2").value));
+        var timingLabel = timershift.checked ? "Auto" : "Attack";
         if (blacklistfull !== "") {
           blacklist.forEach((element) => {
             if (data.includes(element)) {
@@ -1065,7 +1308,7 @@ btn.addEventListener("click", () => {
           useridattack2 = userid;
           useridtarget2 = userid;
           status2 = "attack";
-          log2.innerHTML += "Attack " + targetnames2[rand] + " in " + timing + "ms<br>";
+          log2.innerHTML += timingLabel + " " + targetnames2[rand] + " in " + timing + "ms<br>";
           log2.scrollTop = log2.scrollHeight;
 
 
@@ -1132,7 +1375,8 @@ btn.addEventListener("click", () => {
         });
 
 
-        var timing = (parseInt(document.getElementById("attack2").value));
+        var timing = timershift.checked ? Math.round((parseInt(document.getElementById("attack2").value) + parseInt(document.getElementById("waiting2").value)) / 2) : (parseInt(document.getElementById("attack2").value));
+        var timingLabel = timershift.checked ? "Auto" : "Attack";
         if (!userFound2 && userids.length != 0) {
           var rand = Math.floor(Math.random() * userids.length);
           var userid = userids[rand];
@@ -1140,7 +1384,7 @@ btn.addEventListener("click", () => {
           useridattack2 = userid;
           useridtarget2 = userid;
           status2 = "attack";
-          log2.innerHTML += "Attack " + membersarr[membersarr.indexOf(userid) - 1] + " in " + (timing) + "ms<br>";
+          log2.innerHTML += timingLabel + " " + membersarr[membersarr.indexOf(userid) - 1] + " in " + (timing) + "ms<br>";
           log2.scrollTop = log2.scrollHeight;
 
 
@@ -1173,15 +1417,17 @@ btn.addEventListener("click", () => {
           var text = event.data.toLowerCase();
           var member = text.split(" ");
           var blacklist = document.getElementById("blacklist").value.toLowerCase().split("\n");
-          var timing = parseInt(document.getElementById("waiting2").value);
+          var timing = timershift.checked ? Math.round((parseInt(document.getElementById("attack2").value) + parseInt(document.getElementById("waiting2").value)) / 2) : parseInt(document.getElementById("waiting2").value);
+          var timingLabel = timershift.checked ? "Auto" : "Defense";
 
-          blacklist.forEach((element) => {
+          for (let element of blacklist) {
+            if (userFound2) break;
             if (member.includes(element.toLowerCase())) {
               var memberindex = member.indexOf(element.toLowerCase());
               var userid = member[memberindex + 1];
               useridtarget2 = userid;
               status2 = "defense";
-              log2.innerHTML += "Defense " + element + " in " + (timing) + "ms<br>";
+              log2.innerHTML += timingLabel + " " + element + " in " + (timing) + "ms<br>";
               log2.scrollTop = log2.scrollHeight;
               userFound2 = true;
 
@@ -1209,7 +1455,7 @@ btn.addEventListener("click", () => {
               }, timing);
 
             }
-          });
+          }
         }
       }
 
@@ -1218,14 +1464,16 @@ btn.addEventListener("click", () => {
           var text = event.data.toLowerCase();
           var member = text.split(" ");
           var gangblacklist = document.getElementById("gangblacklist").value.toLowerCase().split("\n");
-          var timing = parseInt(document.getElementById("waiting2").value);
-          gangblacklist.forEach((element) => {
+          var timing = timershift.checked ? Math.round((parseInt(document.getElementById("attack2").value) + parseInt(document.getElementById("waiting2").value)) / 2) : parseInt(document.getElementById("waiting2").value);
+          var timingLabel = timershift.checked ? "Auto" : "Defense";
+          for (let element of gangblacklist) {
+            if (userFound2) break;
             if (member.includes(element.toLowerCase())) {
               var memberindex = member.indexOf(element.toLowerCase());
               var userid = member[memberindex + 2];
               useridtarget2 = userid;
               status2 = "defense";
-              log2.innerHTML += "Defense " + member[memberindex + 1] + " in " + (timing) + "ms<br>";
+              log2.innerHTML += timingLabel + " " + member[memberindex + 1] + " in " + (timing) + "ms<br>";
               log2.scrollTop = log2.scrollHeight;
               userFound2 = true;
 
@@ -1254,7 +1502,7 @@ btn.addEventListener("click", () => {
               }, timing);
 
             }
-          });
+          }
         }
       }
 
@@ -1269,7 +1517,8 @@ btn.addEventListener("click", () => {
 
           var whitelist = document.getElementById("blacklist").value.split("\n");
           var gangwhitelist = document.getElementById("gangblacklist").value.split("\n");
-          var timing = parseInt(document.getElementById("waiting2").value);
+          var timing = timershift.checked ? Math.round((parseInt(document.getElementById("attack2").value) + parseInt(document.getElementById("waiting2").value)) / 2) : parseInt(document.getElementById("waiting2").value);
+          var timingLabel = timershift.checked ? "Auto" : "Defense";
           var indexself = snipfinal.indexOf(useridg2);
           snipfinal[indexself] = "-";
           whitelist.forEach((element) => {
@@ -1290,7 +1539,7 @@ btn.addEventListener("click", () => {
               var userid = snipfinal[3];
               useridtarget2 = userid;
               status2 = "defense";
-              log2.innerHTML += "Defense in " + (timing) + "ms<br>";
+              log2.innerHTML += timingLabel + " in " + (timing) + "ms<br>";
               log2.scrollTop = log2.scrollHeight;
               userFound2 = true;
               timeout2 = setTimeout(() => {
@@ -1343,11 +1592,23 @@ btn.addEventListener("click", () => {
           var logmsg = "3 second error."
           log2.innerHTML += logmsg.fontcolor("#ff0f0f") + "<br>";
           log2.scrollTop = log2.scrollHeight;
+          // Increment timer on 3s error
+          if (timershift.checked) {
+            // When auto interval is enabled, adjust both attack AND defense
+            incrementAttack2();
+            incrementDefence2();
+          }
         }
         else if (snippets[3] === "allows") {
           var logmsg = "Imprisoned successfully."
           log2.innerHTML += logmsg.fontcolor("#0fff7a") + "<br>";
           log2.scrollTop = log2.scrollHeight;
+          // Decrement timer on success
+          if (timershift.checked) {
+            // When auto interval is enabled, adjust both attack AND defense
+            decrementAttack2();
+            decrementDefence2();
+          }
         }
         else {
           log2.innerHTML += text + "<br>";
@@ -1445,21 +1706,26 @@ btn.addEventListener("click", () => {
       }
 
       if (autoescape.checked) {
-        console.log('DEBUG ws2 autorelease: received message pieces', snippets[0], snippets[1], snippets[2]);
         if (snippets[0] === "900") {
           var plnt = snippets[1];
-          console.log('DEBUG ws2 autorelease: plnt=', plnt, 'slice(0,6)=', plnt.slice(0,6));
-          if (plnt.slice(0, 6) === "Prison") {
-            console.log('DEBUG ws2 autorelease: match Prison, calling releasenow.click()');
+          console.log('DEBUG ws2: Got 900 message, planet=', plnt);
+          if (plnt && plnt.slice(0, 6) === "Prison") {
+            console.log('DEBUG ws2 autorelease: Prison detected, triggering escape');
             // Add a small delay before triggering escape to ensure proper state
             setTimeout(() => {
               var escape = document.getElementById("releasenow");
-              escape.click();
+              if (escape) {
+                escape.click();
+                log2.innerHTML += "Auto-release triggered<br>";
+                log2.scrollTop = log2.scrollHeight;
+              } else {
+                console.log('ERROR ws2: releasenow button not found');
+              }
               var planet = document.getElementById("planet").value;
               setTimeout(() => {
                 if (ws2 && ws2.readyState === 1) {
                   ws2.send(`JOIN ${planet}\r\n`);
-                  console.log('DEBUG ws2 autorelease: rejoined after 3s');
+                  console.log('DEBUG ws2 autorelease: rejoined planet after escape');
                 } else {
                   console.log('DEBUG ws2 autorelease: ws2 not connected, cannot rejoin');
                 }
@@ -1467,23 +1733,27 @@ btn.addEventListener("click", () => {
             }, 1000);
           }
         } else if (snippets[1] === "PRISON" && snippets[2] === "0") {
-          console.log('DEBUG ws2 autorelease: match PRISON 0, calling releasenow.click()');
+          console.log('DEBUG ws2 autorelease: PRISON 0 detected, triggering escape');
           // Add a small delay before triggering escape to ensure proper state
           setTimeout(() => {
             var escape = document.getElementById("releasenow");
-            escape.click();
+            if (escape) {
+              escape.click();
+              log2.innerHTML += "Auto-release triggered<br>";
+              log2.scrollTop = log2.scrollHeight;
+            } else {
+              console.log('ERROR ws2: releasenow button not found');
+            }
             var planet = document.getElementById("planet").value;
             setTimeout(() => {
               if (ws2 && ws2.readyState === 1) {
                 ws2.send(`JOIN ${planet}\r\n`);
-                console.log('DEBUG ws2 autorelease: rejoined after 3s');
+                console.log('DEBUG ws2 autorelease: rejoined planet after escape');
               } else {
                 console.log('DEBUG ws2 autorelease: ws2 not connected, cannot rejoin');
               }
             }, 3000);
           }, 1000);
-        } else {
-          console.log('DEBUG ws2 autorelease: no match for 900 or PRISON');
         }
       }
 
@@ -1494,17 +1764,17 @@ btn.addEventListener("click", () => {
       }
 
     }
-  } catch (error) {
-
   }
 
-  try {
+  if (ws3) {
     ws3.onmessage = (event) => {
       var text = event.data;
       var snippets = text.split(" ");
 
       if (snippets[0] === "HAAAPSI") {
         haaapsi3 = snippets[1];
+        // Clear pending timeout to prevent ghost actions
+        clearTimeout(timeout3);
         userFound3 = false;
         status3 = "";
         threesec3 = false;
@@ -1513,6 +1783,7 @@ btn.addEventListener("click", () => {
         attackids3 = [];
         attacknames3 = [];
         useridattack3 = "";
+        useridtarget3 = "";
         lowtime = 0;
         ws3.send("RECOVER " + rccc + "\r\n");
       }
@@ -1531,9 +1802,25 @@ btn.addEventListener("click", () => {
         ws3.send("ADDONS 0 0\r\n");
         ws3.send("MYADDONS 0 0\r\n");
         ws3.send("PHONE 1366 768 0 2 :chrome 113.0.0.0\r\n");
-        ws3.send("JOIN\r\n");
-        log3.innerHTML = "Connection established.<br>";
+        var planet = document.getElementById("planet").value;
+        if (planet && planet !== "") {
+          ws3.send("JOIN " + planet + "\r\n");
+          log3.innerHTML = "Connection established. Joining " + planet + "<br>";
+        } else {
+          ws3.send("JOIN\r\n");
+          log3.innerHTML = "Connection established.<br>";
+        }
         log3.scrollTop = log3.scrollHeight;
+        
+        // Check prison status after connecting if auto-release is enabled
+        if (autoescape.checked) {
+          setTimeout(() => {
+            var escape = document.getElementById("releasenow");
+            if (escape) {
+              escape.click();
+            }
+          }, 2000);
+        }
       }
 
       if (snippets[0] === "353" && snippets[3].slice(0, 6) !== "Prison" && (document.getElementById("lowsecmode").checked != true)) {
@@ -1542,7 +1829,8 @@ btn.addEventListener("click", () => {
         var blacklist = document.getElementById("blacklist").value.toLowerCase().split("\n");
         var gangblacklistfull = document.getElementById("gangblacklist").value.toLowerCase();
         var gangblacklist = document.getElementById("gangblacklist").value.toLowerCase().split("\n");
-        var timing = (parseInt(document.getElementById("attack3").value));
+        var timing = timershift.checked ? Math.round((parseInt(document.getElementById("attack3").value) + parseInt(document.getElementById("waiting3").value)) / 2) : (parseInt(document.getElementById("attack3").value));
+        var timingLabel = timershift.checked ? "Auto" : "Attack";
         if (blacklistfull !== "") {
           blacklist.forEach((element) => {
             if (data.includes(element)) {
@@ -1585,7 +1873,7 @@ btn.addEventListener("click", () => {
           useridattack3 = userid;
           useridtarget3 = userid;
           status3 = "attack";
-          log3.innerHTML += "Attack " + targetnames3[rand] + " in " + timing + "ms<br>";
+          log3.innerHTML += timingLabel + " " + targetnames3[rand] + " in " + timing + "ms<br>";
           log3.scrollTop = log3.scrollHeight;
 
 
@@ -1652,7 +1940,8 @@ btn.addEventListener("click", () => {
         });
 
 
-        var timing = (parseInt(document.getElementById("attack3").value));
+        var timing = timershift.checked ? Math.round((parseInt(document.getElementById("attack3").value) + parseInt(document.getElementById("waiting3").value)) / 2) : (parseInt(document.getElementById("attack3").value));
+        var timingLabel = timershift.checked ? "Auto" : "Attack";
         if (!userFound3 && userids.length != 0) {
           var rand = Math.floor(Math.random() * userids.length);
           var userid = userids[rand];
@@ -1660,7 +1949,7 @@ btn.addEventListener("click", () => {
           useridattack3 = userid;
           useridtarget3 = userid;
           status3 = "attack";
-          log3.innerHTML += "Attack " + membersarr[membersarr.indexOf(userid) - 1] + " in " + (timing) + "ms<br>";
+          log3.innerHTML += timingLabel + " " + membersarr[membersarr.indexOf(userid) - 1] + " in " + (timing) + "ms<br>";
           log3.scrollTop = log3.scrollHeight;
 
 
@@ -1693,15 +1982,17 @@ btn.addEventListener("click", () => {
           var text = event.data.toLowerCase();
           var member = text.split(" ");
           var blacklist = document.getElementById("blacklist").value.toLowerCase().split("\n");
-          var timing = parseInt(document.getElementById("waiting3").value);
+          var timing = timershift.checked ? Math.round((parseInt(document.getElementById("attack3").value) + parseInt(document.getElementById("waiting3").value)) / 2) : parseInt(document.getElementById("waiting3").value);
+          var timingLabel = timershift.checked ? "Auto" : "Defense";
 
-          blacklist.forEach((element) => {
+          for (let element of blacklist) {
+            if (userFound3) break;
             if (member.includes(element.toLowerCase())) {
               var memberindex = member.indexOf(element.toLowerCase());
               var userid = member[memberindex + 1];
               useridtarget3 = userid;
               status3 = "defense";
-              log3.innerHTML += "Defense " + element + " in " + (timing) + "ms<br>";
+              log3.innerHTML += timingLabel + " " + element + " in " + (timing) + "ms<br>";
               log3.scrollTop = log3.scrollHeight;
               userFound3 = true;
 
@@ -1729,7 +2020,7 @@ btn.addEventListener("click", () => {
               }, timing);
 
             }
-          });
+          }
         }
       }
 
@@ -1738,14 +2029,16 @@ btn.addEventListener("click", () => {
           var text = event.data.toLowerCase();
           var member = text.split(" ");
           var gangblacklist = document.getElementById("gangblacklist").value.toLowerCase().split("\n");
-          var timing = parseInt(document.getElementById("waiting3").value);
-          gangblacklist.forEach((element) => {
+          var timing = timershift.checked ? Math.round((parseInt(document.getElementById("attack3").value) + parseInt(document.getElementById("waiting3").value)) / 2) : parseInt(document.getElementById("waiting3").value);
+          var timingLabel = timershift.checked ? "Auto" : "Defense";
+          for (let element of gangblacklist) {
+            if (userFound3) break;
             if (member.includes(element.toLowerCase())) {
               var memberindex = member.indexOf(element.toLowerCase());
               var userid = member[memberindex + 2];
               useridtarget3 = userid;
               status3 = "defense";
-              log3.innerHTML += "Defense " + member[memberindex + 1] + " in " + (timing) + "ms<br>";
+              log3.innerHTML += timingLabel + " " + member[memberindex + 1] + " in " + (timing) + "ms<br>";
               log3.scrollTop = log3.scrollHeight;
               userFound3 = true;
 
@@ -1773,7 +2066,7 @@ btn.addEventListener("click", () => {
               }, timing);
 
             }
-          });
+          }
         }
       }
 
@@ -1788,7 +2081,8 @@ btn.addEventListener("click", () => {
 
           var whitelist = document.getElementById("blacklist").value.split("\n");
           var gangwhitelist = document.getElementById("gangblacklist").value.split("\n");
-          var timing = parseInt(document.getElementById("waiting3").value);
+          var timing = timershift.checked ? Math.round((parseInt(document.getElementById("attack3").value) + parseInt(document.getElementById("waiting3").value)) / 2) : parseInt(document.getElementById("waiting3").value);
+          var timingLabel = timershift.checked ? "Auto" : "Defense";
           var indexself = snipfinal.indexOf(useridg3);
           snipfinal[indexself] = "-";
           whitelist.forEach((element) => {
@@ -1809,7 +2103,7 @@ btn.addEventListener("click", () => {
               var userid = snipfinal[3];
               useridtarget3 = userid;
               status3 = "defense";
-              log3.innerHTML += "Defense in " + (timing) + "ms<br>";
+              log3.innerHTML += timingLabel + " in " + (timing) + "ms<br>";
               log3.scrollTop = log3.scrollHeight;
               userFound3 = true;
               timeout3 = setTimeout(() => {
@@ -1862,11 +2156,23 @@ btn.addEventListener("click", () => {
           var logmsg = "3 second error."
           log3.innerHTML += logmsg.fontcolor("#ff0f0f") + "<br>";
           log3.scrollTop = log3.scrollHeight;
+          // Increment timer on 3s error
+          if (timershift.checked) {
+            // When auto interval is enabled, adjust both attack AND defense
+            incrementAttack3();
+            incrementDefence3();
+          }
         }
         else if (snippets[3] === "allows") {
           var logmsg = "Imprisoned successfully."
           log3.innerHTML += logmsg.fontcolor("#0fff7a") + "<br>";
           log3.scrollTop = log3.scrollHeight;
+          // Decrement timer on success
+          if (timershift.checked) {
+            // When auto interval is enabled, adjust both attack AND defense
+            decrementAttack3();
+            decrementDefence3();
+          }
         }
         else {
           log3.innerHTML += text + "<br>";
@@ -1948,7 +2254,7 @@ btn.addEventListener("click", () => {
         attackids3.splice(index, 1);
         attacknames3.splice(index, 1);
 
-        if (smart.checked && (snippets[1] === useridattack3 + "\r\n") && targetids3.length != 0 && attackids3.length != 0 &&  attackids3.length != 0) {
+        if (smart.checked && (snippets[1] === useridattack3 + "\r\n") && targetids3.length != 0 && attackids3.length != 0) {
           var newArr = attackids3.slice();
           useridattack3 = newArr[Math.floor(Math.random() * newArr.length)];
           var ind = attackids3.indexOf(useridattack3);
@@ -1964,12 +2270,10 @@ btn.addEventListener("click", () => {
       }
 
       if (autoescape.checked) {
-        console.log('DEBUG ws3 autorelease: received message pieces', snippets[0], snippets[1], snippets[2]);
         if (snippets[0] === "900") {
           var plnt = snippets[1];
-          console.log('DEBUG ws3 autorelease: plnt=', plnt, 'slice(0,6)=', plnt.slice(0,6));
-          if (plnt.slice(0, 6) === "Prison") {
-            console.log('DEBUG ws3 autorelease: match Prison, calling releasenow.click()');
+          if (plnt && plnt.slice(0, 6) === "Prison") {
+            console.log('DEBUG ws3 autorelease: Prison detected, triggering escape');
             // Add a small delay before triggering escape to ensure proper state
             setTimeout(() => {
               var escape = document.getElementById("releasenow");
@@ -1978,7 +2282,7 @@ btn.addEventListener("click", () => {
               setTimeout(() => {
                 if (ws3 && ws3.readyState === 1) {
                   ws3.send(`JOIN ${planet}\r\n`);
-                  console.log('DEBUG ws3 autorelease: rejoined after 3s');
+                  console.log('DEBUG ws3 autorelease: rejoined planet after escape');
                 } else {
                   console.log('DEBUG ws3 autorelease: ws3 not connected, cannot rejoin');
                 }
@@ -1986,7 +2290,7 @@ btn.addEventListener("click", () => {
             }, 1000);
           }
         } else if (snippets[1] === "PRISON" && snippets[2] === "0") {
-          console.log('DEBUG ws3 autorelease: match PRISON 0, calling releasenow.click()');
+          console.log('DEBUG ws3 autorelease: PRISON 0 detected, triggering escape');
           // Add a small delay before triggering escape to ensure proper state
           setTimeout(() => {
             var escape = document.getElementById("releasenow");
@@ -1995,14 +2299,12 @@ btn.addEventListener("click", () => {
             setTimeout(() => {
               if (ws3 && ws3.readyState === 1) {
                 ws3.send(`JOIN ${planet}\r\n`);
-                console.log('DEBUG ws3 autorelease: rejoined after 3s');
+                console.log('DEBUG ws3 autorelease: rejoined planet after escape');
               } else {
                 console.log('DEBUG ws3 autorelease: ws3 not connected, cannot rejoin');
               }
             }, 3000);
           }, 1000);
-        } else {
-          console.log('DEBUG ws3 autorelease: no match for 900 or PRISON');
         }
       }
 
@@ -2013,17 +2315,17 @@ btn.addEventListener("click", () => {
       }
 
     }
-  } catch (error) {
-
   }
 
-  try {
+  if (ws4) {
     ws4.onmessage = (event) => {
       var text = event.data;
       var snippets = text.split(" ");
 
       if (snippets[0] === "HAAAPSI") {
         haaapsi4 = snippets[1];
+        // Clear pending timeout to prevent ghost actions
+        clearTimeout(timeout4);
         userFound4 = false;
         status4 = "";
         threesec4 = false;
@@ -2032,6 +2334,7 @@ btn.addEventListener("click", () => {
         attackids4 = [];
         attacknames4 = [];
         useridattack4 = "";
+        useridtarget4 = "";
         lowtime = 0;
         ws4.send("RECOVER " + rcccc + "\r\n");
       }
@@ -2050,9 +2353,25 @@ btn.addEventListener("click", () => {
         ws4.send("ADDONS 0 0\r\n");
         ws4.send("MYADDONS 0 0\r\n");
         ws4.send("PHONE 1366 768 0 2 :chrome 113.0.0.0\r\n");
-        ws4.send("JOIN\r\n");
-        log4.innerHTML = "Connection established.<br>";
+        var planet = document.getElementById("planet").value;
+        if (planet && planet !== "") {
+          ws4.send("JOIN " + planet + "\r\n");
+          log4.innerHTML = "Connection established. Joining " + planet + "<br>";
+        } else {
+          ws4.send("JOIN\r\n");
+          log4.innerHTML = "Connection established.<br>";
+        }
         log4.scrollTop = log4.scrollHeight;
+        
+        // Check prison status after connecting if auto-release is enabled
+        if (autoescape.checked) {
+          setTimeout(() => {
+            var escape = document.getElementById("releasenow");
+            if (escape) {
+              escape.click();
+            }
+          }, 2000);
+        }
       }
 
       if (snippets[0] === "353" && snippets[3].slice(0, 6) !== "Prison" && (document.getElementById("lowsecmode").checked != true)) {
@@ -2061,7 +2380,8 @@ btn.addEventListener("click", () => {
         var blacklist = document.getElementById("blacklist").value.toLowerCase().split("\n");
         var gangblacklistfull = document.getElementById("gangblacklist").value.toLowerCase();
         var gangblacklist = document.getElementById("gangblacklist").value.toLowerCase().split("\n");
-        var timing = (parseInt(document.getElementById("attack4").value));
+        var timing = timershift.checked ? Math.round((parseInt(document.getElementById("attack4").value) + parseInt(document.getElementById("waiting4").value)) / 2) : (parseInt(document.getElementById("attack4").value));
+        var timingLabel = timershift.checked ? "Auto" : "Attack";
         if (blacklistfull !== "") {
           blacklist.forEach((element) => {
             if (data.includes(element)) {
@@ -2104,7 +2424,7 @@ btn.addEventListener("click", () => {
           useridattack4 = userid;
           useridtarget4 = userid;
           status4 = "attack";
-          log4.innerHTML += "Attack " + targetnames4[rand] + " in " + timing + "ms<br>";
+          log4.innerHTML += timingLabel + " " + targetnames4[rand] + " in " + timing + "ms<br>";
           log4.scrollTop = log4.scrollHeight;
 
 
@@ -2171,7 +2491,8 @@ btn.addEventListener("click", () => {
         });
 
 
-        var timing = (parseInt(document.getElementById("attack4").value));
+        var timing = timershift.checked ? Math.round((parseInt(document.getElementById("attack4").value) + parseInt(document.getElementById("waiting4").value)) / 2) : (parseInt(document.getElementById("attack4").value));
+        var timingLabel = timershift.checked ? "Auto" : "Attack";
         if (!userFound4 && userids.length != 0) {
           var rand = Math.floor(Math.random() * userids.length);
           var userid = userids[rand];
@@ -2179,7 +2500,7 @@ btn.addEventListener("click", () => {
           useridattack4 = userid;
           useridtarget4 = userid;
           status4 = "attack";
-          log4.innerHTML += "Attack " + membersarr[membersarr.indexOf(userid) - 1] + " in " + (timing) + "ms<br>";
+          log4.innerHTML += timingLabel + " " + membersarr[membersarr.indexOf(userid) - 1] + " in " + (timing) + "ms<br>";
           log4.scrollTop = log4.scrollHeight;
 
 
@@ -2212,15 +2533,17 @@ btn.addEventListener("click", () => {
           var text = event.data.toLowerCase();
           var member = text.split(" ");
           var blacklist = document.getElementById("blacklist").value.toLowerCase().split("\n");
-          var timing = parseInt(document.getElementById("waiting4").value);
+          var timing = timershift.checked ? Math.round((parseInt(document.getElementById("attack4").value) + parseInt(document.getElementById("waiting4").value)) / 2) : parseInt(document.getElementById("waiting4").value);
+          var timingLabel = timershift.checked ? "Auto" : "Defense";
 
-          blacklist.forEach((element) => {
+          for (let element of blacklist) {
+            if (userFound4) break;
             if (member.includes(element.toLowerCase())) {
               var memberindex = member.indexOf(element.toLowerCase());
               var userid = member[memberindex + 1];
               useridtarget4 = userid;
               status4 = "defense";
-              log4.innerHTML += "Defense " + element + " in " + (timing) + "ms<br>";
+              log4.innerHTML += timingLabel + " " + element + " in " + (timing) + "ms<br>";
               log4.scrollTop = log4.scrollHeight;
               userFound4 = true;
 
@@ -2248,7 +2571,7 @@ btn.addEventListener("click", () => {
               }, timing);
 
             }
-          });
+          }
         }
       }
 
@@ -2257,14 +2580,16 @@ btn.addEventListener("click", () => {
           var text = event.data.toLowerCase();
           var member = text.split(" ");
           var gangblacklist = document.getElementById("gangblacklist").value.toLowerCase().split("\n");
-          var timing = parseInt(document.getElementById("waiting4").value);
-          gangblacklist.forEach((element) => {
+          var timing = timershift.checked ? Math.round((parseInt(document.getElementById("attack4").value) + parseInt(document.getElementById("waiting4").value)) / 2) : parseInt(document.getElementById("waiting4").value);
+          var timingLabel = timershift.checked ? "Auto" : "Defense";
+          for (let element of gangblacklist) {
+            if (userFound4) break;
             if (member.includes(element.toLowerCase())) {
               var memberindex = member.indexOf(element.toLowerCase());
               var userid = member[memberindex + 2];
               useridtarget4 = userid;
               status4 = "defense";
-              log4.innerHTML += "Defense " + member[memberindex + 1] + " in " + (timing) + "ms<br>";
+              log4.innerHTML += timingLabel + " " + member[memberindex + 1] + " in " + (timing) + "ms<br>";
               log4.scrollTop = log4.scrollHeight;
               userFound4 = true;
 
@@ -2293,7 +2618,7 @@ btn.addEventListener("click", () => {
               }, timing);
 
             }
-          });
+          }
         }
       }
 
@@ -2308,7 +2633,8 @@ btn.addEventListener("click", () => {
 
           var whitelist = document.getElementById("blacklist").value.split("\n");
           var gangwhitelist = document.getElementById("gangblacklist").value.split("\n");
-          var timing = parseInt(document.getElementById("waiting4").value);
+          var timing = timershift.checked ? Math.round((parseInt(document.getElementById("attack4").value) + parseInt(document.getElementById("waiting4").value)) / 2) : parseInt(document.getElementById("waiting4").value);
+          var timingLabel = timershift.checked ? "Auto" : "Defense";
           var indexself = snipfinal.indexOf(useridg4);
           snipfinal[indexself] = "-";
           whitelist.forEach((element) => {
@@ -2329,7 +2655,7 @@ btn.addEventListener("click", () => {
               var userid = snipfinal[3];
               useridtarget4 = userid;
               status4 = "defense";
-              log4.innerHTML += "Defense in " + (timing) + "ms<br>";
+              log4.innerHTML += timingLabel + " in " + (timing) + "ms<br>";
               log4.scrollTop = log4.scrollHeight;
               userFound4 = true;
               timeout4 = setTimeout(() => {
@@ -2381,11 +2707,23 @@ if (snippets[0] === "471") {
           var logmsg = "3 second error."
           log4.innerHTML += logmsg.fontcolor("#ff0f0f") + "<br>";
           log4.scrollTop = log4.scrollHeight;
+          // Increment timer on 3s error
+          if (timershift.checked) {
+            // When auto interval is enabled, adjust both attack AND defense
+            incrementAttack4();
+            incrementDefence4();
+          }
         }
         else if (snippets[3] === "allows") {
           var logmsg = "Imprisoned successfully."
           log4.innerHTML += logmsg.fontcolor("#0fff7a") + "<br>";
           log4.scrollTop = log4.scrollHeight;
+          // Decrement timer on success
+          if (timershift.checked) {
+            // When auto interval is enabled, adjust both attack AND defense
+            decrementAttack4();
+            decrementDefence4();
+          }
         }
         else {
           log4.innerHTML += text + "<br>";
@@ -2482,39 +2820,41 @@ if (snippets[0] === "471") {
       }
 
       if (autoescape.checked) {
-        console.log('DEBUG ws4 autorelease: received message pieces', snippets[0], snippets[1], snippets[2]);
         if (snippets[0] === "900") {
           var plnt = snippets[1];
-          console.log('DEBUG ws4 autorelease: plnt=', plnt, 'slice(0,6)=', plnt.slice(0,6));
-          if (plnt.slice(0, 6) === "Prison") {
-            console.log('DEBUG ws4 autorelease: match Prison, calling releasenow.click()');
+          if (plnt && plnt.slice(0, 6) === "Prison") {
+            console.log('DEBUG ws4 autorelease: Prison detected, triggering escape');
+            // Add a small delay before triggering escape to ensure proper state
+            setTimeout(() => {
+              var escape = document.getElementById("releasenow");
+              escape.click();
+              var planet = document.getElementById("planet").value;
+              setTimeout(() => {
+                if (ws4 && ws4.readyState === 1) {
+                  ws4.send(`JOIN ${planet}\r\n`);
+                  console.log('DEBUG ws4 autorelease: rejoined planet after escape');
+                } else {
+                  console.log('DEBUG ws4 autorelease: ws4 not connected, cannot rejoin');
+                }
+              }, 3000);
+            }, 1000);
+          }
+        } else if (snippets[1] === "PRISON" && snippets[2] === "0") {
+          console.log('DEBUG ws4 autorelease: PRISON 0 detected, triggering escape');
+          // Add a small delay before triggering escape to ensure proper state
+          setTimeout(() => {
             var escape = document.getElementById("releasenow");
             escape.click();
             var planet = document.getElementById("planet").value;
             setTimeout(() => {
               if (ws4 && ws4.readyState === 1) {
                 ws4.send(`JOIN ${planet}\r\n`);
-                console.log('DEBUG ws4 autorelease: rejoined after 3s');
+                console.log('DEBUG ws4 autorelease: rejoined planet after escape');
               } else {
                 console.log('DEBUG ws4 autorelease: ws4 not connected, cannot rejoin');
               }
             }, 3000);
-          }
-        } else if (snippets[1] === "PRISON" && snippets[2] === "0") {
-          console.log('DEBUG ws4 autorelease: match PRISON 0, calling releasenow.click()');
-          var escape = document.getElementById("releasenow");
-          escape.click();
-          var planet = document.getElementById("planet").value;
-          setTimeout(() => {
-            if (ws4 && ws4.readyState === 1) {
-              ws4.send(`JOIN ${planet}\r\n`);
-              console.log('DEBUG ws4 autorelease: rejoined after 3s');
-            } else {
-              console.log('DEBUG ws4 autorelease: ws4 not connected, cannot rejoin');
-            }
-          }, 3000);
-        } else {
-          console.log('DEBUG ws4 autorelease: no match for 900 or PRISON');
+          }, 1000);
         }
       }
 
@@ -2525,11 +2865,9 @@ if (snippets[0] === "471") {
       }
 
     }
-  } catch (error) {
-
   }
 
-  try {
+  if (ws5) {
     ws5.onmessage = (event) => {
       var text = event.data;
       var snippets = text.split(" ");
@@ -2553,7 +2891,12 @@ if (snippets[0] === "471") {
         ws5.send("ADDONS 0 0\r\n");
         ws5.send("MYADDONS 0 0\r\n");
         ws5.send("PHONE 1366 768 0 2 :chrome 113.0.0.0\r\n");
-        ws5.send("JOIN\r\n");
+        var planet = document.getElementById("planet").value;
+        if (planet && planet !== "") {
+          ws5.send("JOIN " + planet + "\r\n");
+        } else {
+          ws5.send("JOIN\r\n");
+        }
         ws5.send("REMOVE -999\r\n");
       }
       if (snippets[0] === "PING\r\n") {
@@ -2657,12 +3000,10 @@ if (snippets[0] === "471") {
 
       // Auto-release logic for ws5 (kickrc)
       if (autoescape.checked) {
-        console.log('DEBUG ws5 autorelease: received message pieces', snippets[0], snippets[1], snippets[2]);
         if (snippets[0] === "900") {
           var plnt = snippets[1];
-          console.log('DEBUG ws5 autorelease: plnt=', plnt, 'slice(0,6)=', plnt.slice(0,6));
-          if (plnt.slice(0, 6) === "Prison") {
-            console.log('DEBUG ws5 autorelease: match Prison, calling releasenow.click()');
+          if (plnt && plnt.slice(0, 6) === "Prison") {
+            console.log('DEBUG ws5 autorelease: Prison detected, triggering escape');
             // Add a small delay before triggering escape to ensure proper state
             setTimeout(() => {
               var escape = document.getElementById("releasenow");
@@ -2671,7 +3012,7 @@ if (snippets[0] === "471") {
               setTimeout(() => {
                 if (ws5 && ws5.readyState === 1) {
                   ws5.send(`JOIN ${planet}\r\n`);
-                  console.log('DEBUG ws5 autorelease: rejoined after 3s');
+                  console.log('DEBUG ws5 autorelease: rejoined planet after escape');
                 } else {
                   console.log('DEBUG ws5 autorelease: ws5 not connected, cannot rejoin');
                 }
@@ -2679,7 +3020,7 @@ if (snippets[0] === "471") {
             }, 1000);
           }
         } else if (snippets[1] === "PRISON" && snippets[2] === "0") {
-          console.log('DEBUG ws5 autorelease: match PRISON 0, calling releasenow.click()');
+          console.log('DEBUG ws5 autorelease: PRISON 0 detected, triggering escape');
           // Add a small delay before triggering escape to ensure proper state
           setTimeout(() => {
             var escape = document.getElementById("releasenow");
@@ -2688,14 +3029,12 @@ if (snippets[0] === "471") {
             setTimeout(() => {
               if (ws5 && ws5.readyState === 1) {
                 ws5.send(`JOIN ${planet}\r\n`);
-                console.log('DEBUG ws5 autorelease: rejoined after 3s');
+                console.log('DEBUG ws5 autorelease: rejoined planet after escape');
               } else {
                 console.log('DEBUG ws5 autorelease: ws5 not connected, cannot rejoin');
               }
             }, 3000);
           }, 1000);
-        } else {
-          console.log('DEBUG ws5 autorelease: no match for 900 or PRISON');
         }
       }
 
@@ -2705,8 +3044,6 @@ if (snippets[0] === "471") {
       }
 
     }
-  } catch (error) {
-
   }
 
 
@@ -2765,31 +3102,71 @@ document.getElementById("releasenow").addEventListener("click", async () => {
 document
   .getElementById("btn-disconnect")
   .addEventListener("click", () => {
-    try {
-      ws1.send("QUIT :ds\r\n");
-    } catch (error) {
-
-    }
-    try {
-      ws2.send("QUIT :ds\r\n");
-    } catch (error) {
-
-    }
-    try {
-      ws3.send("QUIT :ds\r\n");
-    } catch (error) {
-
-    }
-    try {
-      ws4.send("QUIT :ds\r\n");
-    } catch (error) {
-
-    }
+    // IMPORTANT: Set work to false FIRST to prevent reconnections
+    work = false;
+    
+    // Clear all pending timeouts
+    try { clearTimeout(timeout1); } catch (error) { }
+    try { clearTimeout(timeout2); } catch (error) { }
+    try { clearTimeout(timeout3); } catch (error) { }
+    try { clearTimeout(timeout4); } catch (error) { }
+    
+    // Function to properly close a websocket
+    const closeWebSocket = (ws, wsName) => {
+      if (!ws) return;
+      
+      try {
+        // Only send QUIT if websocket is in OPEN state
+        if (ws.readyState === 1) { // 1 = OPEN
+          ws.send("QUIT :ds\r\n");
+        }
+        
+        // Remove event handlers to prevent any further processing
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        
+        // Close or terminate based on sleep mode
+        if (sleep.checked && typeof ws.terminate === 'function') {
+          ws.terminate();
+        } else if (ws.readyState !== 3) { // 3 = CLOSED
+          ws.close();
+        }
+      } catch (error) {
+        console.log(`Error closing ${wsName}:`, error);
+      }
+    };
+    
+    // Close all websockets with a small delay to ensure QUIT is sent
+    closeWebSocket(ws1, 'ws1');
+    closeWebSocket(ws2, 'ws2');
+    closeWebSocket(ws3, 'ws3');
+    closeWebSocket(ws4, 'ws4');
+    closeWebSocket(ws5, 'ws5');
+    
+    // Nullify websocket references after a short delay
+    setTimeout(() => {
+      ws1 = null;
+      ws2 = null;
+      ws3 = null;
+      ws4 = null;
+      ws5 = null;
+    }, 100);
+    
+    // Reset all connection flags
     ws1on = false;
     ws2on = false;
     ws3on = false;
     ws4on = false;
     ws5on = false;
+    
+    // Reset user found flags
+    userFound1 = false;
+    userFound2 = false;
+    userFound3 = false;
+    userFound4 = false;
+    
     log1.innerHTML += "Program terminated.<br>";
     log2.innerHTML += "Program terminated.<br>";
     log3.innerHTML += "Program terminated.<br>";
@@ -2798,7 +3175,6 @@ document
     log2.scrollTop = log2.scrollHeight;
     log3.scrollTop = log3.scrollHeight;
     log4.scrollTop = log4.scrollHeight;
-    work = false;
 
     localStorage.setItem("rc1", document.getElementById("rc1").value);
     localStorage.setItem("rc2", document.getElementById("rc2").value);
