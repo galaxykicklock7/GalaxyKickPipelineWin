@@ -1099,6 +1099,9 @@ class FinalCompleteGameLogic {
         this.addLog(this.wsNumber, `🌍 Current Planet: ${planetInfo}`);
       }
 
+      // DEBUG: Log autorelease status
+      this.addLog(this.wsNumber, `🔍 Autorelease: ${this.config.autorelease}, Planet: ${snippets[1]}`);
+
       if (this.config.autorelease) {
         const plnt = snippets[1];
         if (plnt && plnt.slice(0, 6) === "Prison") {
