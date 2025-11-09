@@ -33,6 +33,9 @@ class FinalCompleteGameLogic {
     // Flags
     this.userFound = false;
     this.threesec = false;
+    this.inPrison = false; // Track if account is in prison
+    this.currentPlanet = null; // Track current planet
+    this.founderUserId = null; // Track planet owner/founder
     
     // Status
     this.status = ""; // "attack" or "defense"
@@ -167,6 +170,428 @@ class FinalCompleteGameLogic {
   // 353 HANDLER - CHANNEL USER LIST
   // ========================================
   
+  // 353 BAN Mode Handler - Bans users already on planet
+  handle353BanMode(ws, snippets, text) {
+    try {
+      const channelName = snippets[3];
+      
+      if (channelName && channelName.slice(0, 6) === "Prison") {
+        this.addLog(this.wsNumber, `Skipping prison channel`);
+        return;
+      }
+
+      console.log(`[WS${this.wsNumber}] 353 BAN mode - Processing user list`);
+      console.log(`[WS${this.wsNumber}] 353 BAN mode options - Everyone=${this.config.kickall}, ByBlacklist=${this.config.kickbybl}, Dad+=${this.config.dadplus}`);
+      
+      // ONLY process if at least one mode is enabled
+      if (!this.config.kickall && !this.config.kickbybl && !this.config.dadplus) {
+        console.log(`[WS${this.wsNumber}] 353 BAN mode - No modes enabled, skipping`);
+        return;
+      }
+      
+      const data = text.replaceAll("+", "").toLowerCase();
+      const usersToBan = [];
+      
+      // OPTION 1: Check "Everyone" mode - ban all users on planet
+      if (this.config.kickall) {
+        console.log(`[WS${this.wsNumber}] 353 BAN mode - Everyone mode active, parsing all users`);
+        
+        // Use same parsing logic as handle353Normal
+        // Remove prefixes and split into array
+        let members = text.split("+").join("");
+        members = members.split("@").join("");
+        members = members.split(":").join("");
+        const membersarr = members.toLowerCase().split(" ");
+        
+        console.log(`[WS${this.wsNumber}] 353 BAN mode - Parsed ${membersarr.length} parts`);
+        
+        // Extract valid user IDs (numeric, length >= 6, preceded by non-numeric username)
+        const integers = membersarr.filter(item => !isNaN(item) && item !== "-" && item.length >= 6);
+        
+        integers.forEach((userid) => {
+          const idx = membersarr.indexOf(userid);
+          if (idx > 0) {
+            const username = membersarr[idx - 1];
+            
+            // Skip if username is also numeric (means it's not a username)
+            if (!isNaN(username)) return;
+            
+            console.log(`[WS${this.wsNumber}] 353 BAN mode - Checking: ${username} (${userid})`);
+            
+            // Skip self and founder
+            if (userid === this.useridg) {
+              console.log(`[WS${this.wsNumber}] 353 BAN mode - Skipping self: ${userid}`);
+            } else if (userid === this.founderUserId) {
+              console.log(`[WS${this.wsNumber}] 353 BAN mode - Skipping founder: ${userid}`);
+            } else if (!usersToBan.find(u => u.userid === userid)) {
+              usersToBan.push({ userid, username, reason: 'everyone' });
+              console.log(`[WS${this.wsNumber}] 353 BAN mode - Found user to ban (everyone): ${username} (${userid})`);
+            }
+          }
+        });
+      }
+      
+      // OPTION 2: Check "By Blacklist" mode (only if Everyone is not enabled)
+      else if (this.config.kickbybl) {
+        const kblacklist = (this.config.kblacklist || "").toLowerCase().split("\n").filter(k => k.trim());
+        const kgangblacklist = (this.config.kgangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+        
+        console.log(`[WS${this.wsNumber}] 353 BAN mode - Kick Blacklist Users: [${kblacklist.join(', ')}]`);
+        console.log(`[WS${this.wsNumber}] 353 BAN mode - Kick Blacklist Clans: [${kgangblacklist.join(', ')}]`);
+      
+        // Process username blacklist
+        kblacklist.forEach((element) => {
+        if (element && data.includes(element)) {
+          const replace = element + " ";
+          const replaced = data.replaceAll(replace, "*");
+          const arr = replaced.split("*");
+          arr.shift();
+          
+          if (arr[0]) {
+            const userid = arr[0].split(" ")[0];
+            // Skip self and founder
+            if (userid === this.useridg) {
+              console.log(`[WS${this.wsNumber}] 353 BAN mode - Skipping self: ${userid}`);
+            } else if (userid === this.founderUserId) {
+              console.log(`[WS${this.wsNumber}] 353 BAN mode - Skipping founder: ${userid}`);
+              this.addLog(this.wsNumber, `👑 Skipping BAN for planet owner: ${element}`);
+            } else if (userid && !usersToBan.includes(userid)) {
+              usersToBan.push({ userid, username: element, reason: `kblacklist: ${element}` });
+              console.log(`[WS${this.wsNumber}] 353 BAN mode - Found user to ban: ${element} (${userid})`);
+            }
+          }
+        }
+      });
+      
+        // Process gang blacklist
+        kgangblacklist.forEach((element) => {
+        if (element && data.includes(element)) {
+          const replace = element + " ";
+          const replaced = data.replaceAll(replace, "*");
+          const arr = replaced.split("*");
+          arr.shift();
+          
+          for (let i = 0; i < arr.length; i++) {
+            const value = arr[i];
+            const parts = value.split(" ");
+            const userid = parts[1];
+            const username = parts[0];
+            
+            // Skip self and founder
+            if (userid === this.useridg) {
+              console.log(`[WS${this.wsNumber}] 353 BAN mode - Skipping self: ${userid}`);
+            } else if (userid === this.founderUserId) {
+              console.log(`[WS${this.wsNumber}] 353 BAN mode - Skipping founder: ${userid}`);
+              this.addLog(this.wsNumber, `👑 Skipping BAN for planet owner in gang: ${username}`);
+            } else if (username && userid && !usersToBan.find(u => u.userid === userid)) {
+              usersToBan.push({ userid, username, reason: `kgangblacklist: ${element}` });
+              console.log(`[WS${this.wsNumber}] 353 BAN mode - Found gang member to ban: ${username} (${userid})`);
+            }
+          }
+        }
+        });
+      }
+      
+      // OPTION 3: Dad+ mode - Request user info for all users to check for aura (independent of other modes)
+      if (this.config.dadplus) {
+        // Parse all user IDs from 353 message
+        let members = text.split("+").join("");
+        members = members.split("@").join("");
+        members = members.split(":").join("");
+        const membersarr = members.toLowerCase().split(" ");
+        const integers = membersarr.filter(item => !isNaN(item) && item !== "-" && item.length >= 6);
+        
+        console.log(`[WS${this.wsNumber}] Dad+ mode - Requesting info for ${integers.length} users`);
+        this.addLog(this.wsNumber, `🔍 Dad+ checking ${integers.length} users for aura`);
+        
+        integers.forEach((userid, index) => {
+          // Skip self and founder
+          if (userid === this.useridg || userid === this.founderUserId) return;
+          
+          setTimeout(() => {
+            if (ws.readyState === ws.OPEN) {
+              ws.send(`WHOIS ${userid}\r\n`);
+              console.log(`[WS${this.wsNumber}] Dad+ mode - Sent WHOIS for ${userid}`);
+            }
+          }, index * 50); // Stagger requests by 50ms
+        });
+      }
+      
+      // Ban all matched users
+      if (usersToBan.length > 0) {
+        console.log(`[WS${this.wsNumber}] 353 BAN mode - Banning ${usersToBan.length} user(s)`);
+        this.addLog(this.wsNumber, `🚫 Found ${usersToBan.length} user(s) to ban`);
+        
+        usersToBan.forEach((user, index) => {
+          setTimeout(() => {
+            if (ws.readyState === ws.OPEN) {
+              ws.send(`BAN ${user.userid}\r\n`);
+              this.addLog(this.wsNumber, `🚫 Banning ${user.username} (${user.userid}) - ${user.reason}`);
+              console.log(`[WS${this.wsNumber}] 353 BAN mode - Sent BAN command for ${user.userid}`);
+            }
+          }, index * 100); // Stagger bans by 100ms to avoid flooding
+        });
+      } else {
+        console.log(`[WS${this.wsNumber}] 353 BAN mode - No users to ban`);
+        this.addLog(this.wsNumber, `✅ No users in kick blacklist found on planet`);
+      }
+      
+    } catch (error) {
+      console.error(`[WS${this.wsNumber}] Error in handle353BanMode:`, error);
+    }
+  }
+  
+  // 353 Handler for ALL codes (1-5) - Kick/Imprison mode
+  handle353KickMode(ws, snippets, text) {
+    try {
+      const channelName = snippets[3];
+      
+      if (channelName && channelName.slice(0, 6) === "Prison") {
+        this.addLog(this.wsNumber, `Skipping prison channel`);
+        return;
+      }
+
+      // Determine if we're in Kick or Imprison mode
+      const isKickMode = this.config.kickmode === true;
+      const actionType = isKickMode ? "Kick" : "Imprison";
+      
+      console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - Processing user list`);
+      console.log(`[WS${this.wsNumber}] 353 ${actionType} mode options - Everyone=${this.config.kickall}, ByBlacklist=${this.config.kickbybl}, Dad+=${this.config.dadplus}`);
+      
+      // ONLY process if at least one mode is enabled
+      if (!this.config.kickall && !this.config.kickbybl && !this.config.dadplus) {
+        console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - No modes enabled, skipping`);
+        return;
+      }
+      
+      // Parse all user IDs from 353 message (only if needed)
+      let members = text.split("+").join("");
+      members = members.split("@").join("");
+      members = members.split(":").join("");
+      const membersarr = members.toLowerCase().split(" ");
+      const integers = membersarr.filter(item => !isNaN(item) && item !== "-" && item.length >= 6);
+      
+      const usersToAct = [];
+      
+      // OPTION 1: Check "Everyone" mode - kick/imprison all users
+      if (this.config.kickall) {
+        console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - Everyone mode active`);
+        
+        integers.forEach((userid) => {
+          const idx = membersarr.indexOf(userid);
+          if (idx > 0) {
+            const username = membersarr[idx - 1];
+            
+            // Skip if username is also numeric (means it's not a username)
+            if (!isNaN(username)) return;
+            
+            // Skip self and founder
+            if (userid === this.useridg) {
+              console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - Skipping self: ${userid}`);
+            } else if (userid === this.founderUserId) {
+              console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - Skipping founder: ${userid}`);
+            } else if (!usersToAct.find(u => u.userid === userid)) {
+              usersToAct.push({ userid, username, reason: 'everyone' });
+              console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - Found user (everyone): ${username} (${userid})`);
+            }
+          }
+        });
+      }
+      
+      // OPTION 2: Check "By Blacklist" mode (only if Everyone is not enabled)
+      else if (this.config.kickbybl) {
+        const data = text.replaceAll("+", "").toLowerCase();
+        
+        if (isKickMode) {
+          // KICK MODE: Use kblacklist and kgangblacklist
+          const kblacklist = (this.config.kblacklist || "").toLowerCase().split("\n").filter(k => k.trim());
+          const kgangblacklist = (this.config.kgangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+          
+          console.log(`[WS${this.wsNumber}] 353 Kick mode - Kick Blacklist Users: [${kblacklist.join(', ')}]`);
+          console.log(`[WS${this.wsNumber}] 353 Kick mode - Kick Blacklist Clans: [${kgangblacklist.join(', ')}]`);
+          
+          // Process username blacklist
+          kblacklist.forEach((element) => {
+            if (element && data.includes(element)) {
+              const replace = element + " ";
+              const replaced = data.replaceAll(replace, "*");
+              const arr = replaced.split("*");
+              arr.shift();
+              
+              if (arr[0]) {
+                const userid = arr[0].split(" ")[0];
+                // Skip self and founder
+                if (userid === this.useridg) {
+                  console.log(`[WS${this.wsNumber}] 353 Kick mode - Skipping self: ${userid}`);
+                } else if (userid === this.founderUserId) {
+                  console.log(`[WS${this.wsNumber}] 353 Kick mode - Skipping founder: ${userid}`);
+                  this.addLog(this.wsNumber, `👑 Skipping kick for planet owner: ${element}`);
+                } else if (userid && !usersToAct.find(u => u.userid === userid)) {
+                  usersToAct.push({ userid, username: element, reason: `kblacklist: ${element}` });
+                  console.log(`[WS${this.wsNumber}] 353 Kick mode - Found user to kick: ${element} (${userid})`);
+                }
+              }
+            }
+          });
+          
+          // Process gang blacklist
+          kgangblacklist.forEach((element) => {
+            if (element && data.includes(element)) {
+              const replace = element + " ";
+              const replaced = data.replaceAll(replace, "*");
+              const arr = replaced.split("*");
+              arr.shift();
+              
+              for (let i = 0; i < arr.length; i++) {
+                const value = arr[i];
+                const parts = value.split(" ");
+                const userid = parts[1];
+                const username = parts[0];
+                
+                // Skip self and founder
+                if (userid === this.useridg) {
+                  console.log(`[WS${this.wsNumber}] 353 Kick mode - Skipping self: ${userid}`);
+                } else if (userid === this.founderUserId) {
+                  console.log(`[WS${this.wsNumber}] 353 Kick mode - Skipping founder: ${userid}`);
+                  this.addLog(this.wsNumber, `👑 Skipping kick for planet owner in gang: ${username}`);
+                } else if (username && userid && !usersToAct.find(u => u.userid === userid)) {
+                  usersToAct.push({ userid, username, reason: `kgangblacklist: ${element}` });
+                  console.log(`[WS${this.wsNumber}] 353 Kick mode - Found gang member to kick: ${username} (${userid})`);
+                }
+              }
+            }
+          });
+        } else {
+          // IMPRISON MODE: Use blacklist and gangblacklist
+          const blacklist = (this.config.blacklist || "").toLowerCase().split("\n").filter(b => b.trim());
+          const gangblacklist = (this.config.gangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+          
+          console.log(`[WS${this.wsNumber}] 353 Imprison mode - Blacklist Users: [${blacklist.join(', ')}]`);
+          console.log(`[WS${this.wsNumber}] 353 Imprison mode - Blacklist Clans: [${gangblacklist.join(', ')}]`);
+          
+          // Process username blacklist
+          blacklist.forEach((element) => {
+            if (element && data.includes(element)) {
+              const replace = element + " ";
+              const replaced = data.replaceAll(replace, "*");
+              const arr = replaced.split("*");
+              arr.shift();
+              
+              if (arr[0]) {
+                const userid = arr[0].split(" ")[0];
+                // Skip self and founder
+                if (userid === this.useridg) {
+                  console.log(`[WS${this.wsNumber}] 353 Imprison mode - Skipping self: ${userid}`);
+                } else if (userid === this.founderUserId) {
+                  console.log(`[WS${this.wsNumber}] 353 Imprison mode - Skipping founder: ${userid}`);
+                  this.addLog(this.wsNumber, `👑 Skipping imprison for planet owner: ${element}`);
+                } else if (userid && !usersToAct.find(u => u.userid === userid)) {
+                  usersToAct.push({ userid, username: element, reason: `blacklist: ${element}` });
+                  console.log(`[WS${this.wsNumber}] 353 Imprison mode - Found user to imprison: ${element} (${userid})`);
+                }
+              }
+            }
+          });
+          
+          // Process gang blacklist
+          gangblacklist.forEach((element) => {
+            if (element && data.includes(element)) {
+              const replace = element + " ";
+              const replaced = data.replaceAll(replace, "*");
+              const arr = replaced.split("*");
+              arr.shift();
+              
+              for (let i = 0; i < arr.length; i++) {
+                const value = arr[i];
+                const parts = value.split(" ");
+                const userid = parts[1];
+                const username = parts[0];
+                
+                // Skip self and founder
+                if (userid === this.useridg) {
+                  console.log(`[WS${this.wsNumber}] 353 Imprison mode - Skipping self: ${userid}`);
+                } else if (userid === this.founderUserId) {
+                  console.log(`[WS${this.wsNumber}] 353 Imprison mode - Skipping founder: ${userid}`);
+                  this.addLog(this.wsNumber, `👑 Skipping imprison for planet owner in gang: ${username}`);
+                } else if (username && userid && !usersToAct.find(u => u.userid === userid)) {
+                  usersToAct.push({ userid, username, reason: `gangblacklist: ${element}` });
+                  console.log(`[WS${this.wsNumber}] 353 Imprison mode - Found gang member to imprison: ${username} (${userid})`);
+                }
+              }
+            }
+          });
+        }
+      }
+      
+      // OPTION 3: Dad+ mode - Request user info for all users to check for aura (independent of other modes)
+      if (this.config.dadplus) {
+        console.log(`[WS${this.wsNumber}] Dad+ mode - Requesting info for ${integers.length} users`);
+        this.addLog(this.wsNumber, `🔍 Dad+ checking ${integers.length} users for aura`);
+        
+        integers.forEach((userid, index) => {
+          // Skip self and founder
+          if (userid === this.useridg || userid === this.founderUserId) return;
+          
+          setTimeout(() => {
+            if (ws.readyState === ws.OPEN) {
+              ws.send(`WHOIS ${userid}\r\n`);
+              console.log(`[WS${this.wsNumber}] Dad+ mode - Sent WHOIS for ${userid}`);
+            }
+          }, index * 50); // Stagger requests by 50ms
+        });
+      }
+      
+      // Execute actions for matched users
+      if (usersToAct.length > 0) {
+        // Timer shift: use average of attack + waiting when enabled
+        const attackTime = parseInt(this.config[`attack${this.wsNumber}`] || 1940);
+        const waitingTime = parseInt(this.config[`waiting${this.wsNumber}`] || 1910);
+        const timing = this.config.timershift ? Math.round((attackTime + waitingTime) / 2) : attackTime;
+        const timingLabel = this.config.timershift ? "Auto" : "Attack";
+        
+        console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - Acting on ${usersToAct.length} user(s)`);
+        this.addLog(this.wsNumber, `${isKickMode ? '👢' : '⚔️'} Found ${usersToAct.length} user(s) to ${actionType.toLowerCase()}`);
+        this.addLog(this.wsNumber, `⚡ ${timingLabel} in ${timing}ms`);
+        
+        // Wait for timing before sending first action
+        setTimeout(() => {
+          usersToAct.forEach((user, index) => {
+            setTimeout(() => {
+              if (ws.readyState === ws.OPEN) {
+                if (isKickMode) {
+                  ws.send(`KICK ${user.userid}\r\n`);
+                  this.addLog(this.wsNumber, `👢 Kicking ${user.username} (${user.userid}) - ${user.reason}`);
+                  console.log(`[WS${this.wsNumber}] 353 Kick mode - Sent KICK command for ${user.userid}`);
+                } else {
+                  ws.send(`ACTION 3 ${user.userid}\r\n`);
+                  this.addLog(this.wsNumber, `⚔️ Imprisoning ${user.username} (${user.userid}) - ${user.reason}`);
+                  console.log(`[WS${this.wsNumber}] 353 Imprison mode - Sent ACTION 3 command for ${user.userid}`);
+                }
+                
+                // QUIT immediately after last action (matches bestscript.js)
+                if (index === usersToAct.length - 1) {
+                  ws.send("QUIT :ds\r\n");
+                  this.addLog(this.wsNumber, `🚪 QUIT`);
+                  
+                  // Trigger auto-reconnect if sleeping mode is enabled
+                  if (this.config.sleeping) {
+                    this.OffSleep(ws);
+                  }
+                }
+              }
+            }, index * 100); // Stagger actions by 100ms to avoid flooding
+          });
+        }, timing);
+      } else {
+        console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - No users to ${actionType.toLowerCase()}`);
+        this.addLog(this.wsNumber, `✅ No users in blacklist found on planet`);
+      }
+      
+    } catch (error) {
+      console.error(`[WS${this.wsNumber}] Error in handle353KickMode:`, error);
+    }
+  }
+  
   handle353Normal(ws, snippets, text) {
     try {
       const channelName = snippets[3];
@@ -199,7 +624,12 @@ class FinalCompleteGameLogic {
             
             if (arr[0]) {
               const userid = arr[0].split(" ")[0];
-              if (userid && !this.targetids.includes(userid)) {
+              // Skip founder - don't add to attack arrays
+              if (userid === this.founderUserId) {
+                this.addLog(this.wsNumber, `👑 Skipping planet owner: ${element}`);
+                console.log(`[WS${this.wsNumber}] Founder ${userid} skipped - not adding to attack list`);
+                // Don't return here, just skip adding to arrays
+              } else if (userid && !this.targetids.includes(userid)) {
                 this.targetids.push(userid);
                 this.attackids.push(userid);
                 this.targetnames.push(element);
@@ -223,15 +653,46 @@ class FinalCompleteGameLogic {
             for (let i = 0; i < arr.length; i++) {
               const value = arr[i];
               const parts = value.split(" ");
-              if (parts[0] && parts[1] && !this.targetids.includes(parts[1])) {
+              const userid = parts[1];
+              // Skip founder
+              if (userid === this.founderUserId) {
+                this.addLog(this.wsNumber, `👑 Skipping planet owner in gang: ${parts[0]}`);
+                continue;
+              }
+              if (parts[0] && userid && !this.targetids.includes(userid)) {
                 this.targetnames.push(parts[0]);
                 this.attacknames.push(parts[0]);
-                this.targetids.push(parts[1]);
-                this.attackids.push(parts[1]);
-                this.addLog(this.wsNumber, `Found gang member: ${parts[0]} (${parts[1]})`);
+                this.targetids.push(userid);
+                this.attackids.push(userid);
+                this.addLog(this.wsNumber, `Found gang member: ${parts[0]} (${userid})`);
               }
             }
           }
+        });
+      }
+
+      // Dad+ mode - Request user info for all users to check for aura
+      if (this.config.dadplus) {
+        // Parse all user IDs from 353 message
+        let members = text.split("+").join("");
+        members = members.split("@").join("");
+        members = members.split(":").join("");
+        const membersarr = members.toLowerCase().split(" ");
+        const integers = membersarr.filter(item => !isNaN(item) && item !== "-" && item.length >= 6);
+        
+        console.log(`[WS${this.wsNumber}] Dad+ mode - Requesting info for ${integers.length} users`);
+        this.addLog(this.wsNumber, `🔍 Dad+ checking ${integers.length} users for aura`);
+        
+        integers.forEach((userid, index) => {
+          // Skip self and founder
+          if (userid === this.useridg || userid === this.founderUserId) return;
+          
+          setTimeout(() => {
+            if (ws.readyState === ws.OPEN) {
+              ws.send(`WHOIS ${userid}\r\n`);
+              console.log(`[WS${this.wsNumber}] Dad+ mode - Sent WHOIS for ${userid}`);
+            }
+          }, index * 50); // Stagger requests by 50ms
         });
       }
 
@@ -249,6 +710,14 @@ class FinalCompleteGameLogic {
         this.addLog(this.wsNumber, `⚡ ${timingLabel} ${targetname} in ${timing}ms`);
 
         this.timeout = setTimeout(() => {
+          // Check if target is founder before attacking (founder info might arrive after 353)
+          if (this.useridattack === this.founderUserId) {
+            this.addLog(this.wsNumber, `👑 Cancelled attack - target is planet owner`);
+            console.log(`[WS${this.wsNumber}] Attack cancelled - target ${this.useridattack} is founder`);
+            this.userFound = false;
+            return;
+          }
+          
           if (ws.readyState === ws.OPEN) {
             ws.send(`ACTION 3 ${this.useridattack}\r\n`);
             this.addLog(this.wsNumber, `⚔️ Attacked ${targetname}!`);
@@ -336,8 +805,16 @@ class FinalCompleteGameLogic {
       const timingLabel = this.config.timershift ? "Auto" : "Attack";
 
       if (!this.userFound && userids.length > 0) {
-        const rand = Math.floor(Math.random() * userids.length);
-        const userid = userids[rand];
+        // Filter out founder from userids
+        const validUserids = userids.filter(uid => uid !== this.founderUserId);
+        
+        if (validUserids.length === 0) {
+          this.addLog(this.wsNumber, `👑 All targets are planet owner - skipping`);
+          return;
+        }
+        
+        const rand = Math.floor(Math.random() * validUserids.length);
+        const userid = validUserids[rand];
         const idx = membersarr.indexOf(userid);
         const username = idx > 0 ? membersarr[idx - 1] : "unknown";
         
@@ -349,6 +826,13 @@ class FinalCompleteGameLogic {
         this.addLog(this.wsNumber, `⚡ [LOW SEC] ${timingLabel} ${username} in ${timing}ms`);
 
         this.timeout = setTimeout(() => {
+          // Check if target is founder before attacking
+          if (this.useridattack === this.founderUserId) {
+            this.addLog(this.wsNumber, `👑 Cancelled attack - target is planet owner`);
+            this.userFound = false;
+            return;
+          }
+          
           if (ws.readyState === ws.OPEN) {
             ws.send(`ACTION 3 ${this.useridattack}\r\n`);
             this.addLog(this.wsNumber, `⚔️ [LOW SEC] Attacked ${username}!`);
@@ -372,16 +856,28 @@ class FinalCompleteGameLogic {
   }
 
   handle353Message(ws, snippets, text) {
-    // Skip 353 for ws5 (kick mode doesn't need user list processing)
-    if (this.wsNumber === 5) {
+    // Update planet status from 353 message (snippets[3] contains planet name)
+    const planetName = snippets[3];
+    if (planetName) {
+      this.currentPlanet = planetName;
+      this.inPrison = planetName.slice(0, 6) === "Prison";
+      console.log(`[WS${this.wsNumber}] 353 - Planet: ${planetName}, inPrison: ${this.inPrison}`);
+    }
+    
+    // Check N/A mode first - applies to ALL connections
+    if (this.config.modena === true) {
+      this.handle353BanMode(ws, snippets, text);
       return;
     }
     
+    // Check Low Sec mode
     if (this.config.lowsecmode) {
       this.handle353LowSec(ws, snippets, text);
-    } else {
-      this.handle353Normal(ws, snippets, text);
+      return;
     }
+    
+    // ALL codes (1-5) - Use unified kick/imprison mode handler
+    this.handle353KickMode(ws, snippets, text);
   }
 
   // ========================================
@@ -397,23 +893,30 @@ class FinalCompleteGameLogic {
       const gangblacklistfull = (this.config.gangblacklist || "").toLowerCase();
       const gangblacklist = gangblacklistfull.split("\n").filter(g => g.trim());
 
-      // Parse JOIN message format: "JOIN - username userid ..." or "JOIN userid username ..."
+      // Parse JOIN message format: "JOIN <channel> <username> <userid> ..."
       const parts = text.split(" ");
       let username = "";
       let userid = "";
       
-      if (parts[1] === "-") {
-        // Format: JOIN - username userid
+      // Format: JOIN TEAM_SPARROW ``THALA`` 14358744 ...
+      // parts[0] = JOIN
+      // parts[1] = channel (TEAM_SPARROW)
+      // parts[2] = username (``THALA``)
+      // parts[3] = userid (14358744)
+      
+      if (parts.length >= 4) {
         username = parts[2] ? parts[2].toLowerCase() : "";
         userid = parts[3] || "";
-      } else {
-        // Format: JOIN userid username
-        userid = parts[1] || "";
-        username = parts[2] ? parts[2].toLowerCase() : "";
       }
 
       // DEBUG: Log every JOIN message
-      this.addLog(this.wsNumber, `🔍 JOIN detected: ${username} (${userid})`);
+      this.addLog(this.wsNumber, `🔍 JOIN detected: ${username} (${parts[1]})`);
+      
+      // Dad+ mode - request user info to check for aura (for codes 1-4)
+      if (this.config.dadplus && userid && userid !== this.useridg && userid !== this.founderUserId) {
+        console.log(`[WS${this.wsNumber}] Dad+ mode - Requesting user info for ${userid}`);
+        ws.send(`WHOIS ${userid}\r\n`);
+      }
 
       let foundMatch = false;
       let matchedUser = "";
@@ -447,7 +950,14 @@ class FinalCompleteGameLogic {
         }
       }
 
-      // Attack if found
+      // Check if target is the planet founder (owner) - SKIP if yes
+      if (foundMatch && matchedId === this.founderUserId) {
+        this.addLog(this.wsNumber, `👑 Skipping planet owner: ${matchedUser}`);
+        console.log(`[WS${this.wsNumber}] Skipping founder ${matchedId} - can't imprison planet owner`);
+        foundMatch = false; // Don't attack
+      }
+
+      // Attack if found and not founder
       if (foundMatch && !this.userFound) {
         // Timer shift: use average of attack + waiting when enabled
         const attackTime = parseInt(this.config[`attack${this.wsNumber}`] || 1940);
@@ -465,6 +975,13 @@ class FinalCompleteGameLogic {
         this.addLog(this.wsNumber, `⚡ ${timingLabel} in ${timing}ms`);
 
         this.timeout = setTimeout(() => {
+          // Check if target is founder before attacking
+          if (this.useridattack === this.founderUserId) {
+            this.addLog(this.wsNumber, `👑 Cancelled attack - target is planet owner`);
+            this.userFound = false;
+            return;
+          }
+          
           if (ws.readyState === ws.OPEN) {
             ws.send(`ACTION 3 ${this.useridattack}\r\n`);
             this.addLog(this.wsNumber, `⚔️ Attacked ${matchedUser}!`);
@@ -493,17 +1010,14 @@ class FinalCompleteGameLogic {
   handleJoinDefenseMode(ws, snippets, text) {
     try {
       if (!this.userFound) {
-        // Parse JOIN message format
+        // Parse JOIN message format: "JOIN <channel> <username> <userid> ..."
         const parts = text.split(" ");
         let username = "";
         let userid = "";
         
-        if (parts[1] === "-") {
+        if (parts.length >= 4) {
           username = parts[2] ? parts[2].toLowerCase() : "";
           userid = parts[3] || "";
-        } else {
-          userid = parts[1] || "";
-          username = parts[2] ? parts[2].toLowerCase() : "";
         }
         
         const gangblacklist = (this.config.gangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
@@ -516,6 +1030,12 @@ class FinalCompleteGameLogic {
         
         gangblacklist.forEach((element) => {
           if (element && username.includes(element)) {
+            // Skip if founder
+            if (userid === this.founderUserId) {
+              this.addLog(this.wsNumber, `👑 Skipping planet owner in defense mode`);
+              return;
+            }
+            
             this.useridtarget = userid;
             this.status = "defense";
             this.userFound = true;
@@ -552,15 +1072,18 @@ class FinalCompleteGameLogic {
       let username = "";
       let userid = "";
       
-      if (parts[1] === "-") {
+      // Format: JOIN <channel> <username> <userid> ...
+      if (parts.length >= 4) {
         username = parts[2] || "";
         userid = parts[3] || "";
-      } else {
-        userid = parts[1] || "";
-        username = parts[2] || "";
       }
       
       const usernameLower = username.toLowerCase();
+      
+      // Skip founder
+      if (userid === this.founderUserId) {
+        return; // Don't add founder to target pool
+      }
       
       // Track username blacklist
       const blacklist = (this.config.blacklist || "").split("\n").filter(b => b.trim());
@@ -590,28 +1113,112 @@ class FinalCompleteGameLogic {
     }
   }
 
-  // JOIN Handler #4 - Kick mode (NEW! For ws5/kickrc)
-  handleJoinKickMode(ws, snippets, text) {
+  // JOIN Handler #4 - BAN mode (N/A mode - for ALL connections)
+  handleJoinBanMode(ws, snippets, text) {
     try {
-      // Only process if this is ws5 (kick account)
-      if (this.wsNumber !== 5) return;
+      console.log(`[WS${this.wsNumber}] BAN mode handler called`);
+      console.log(`[WS${this.wsNumber}] BAN mode options - Everyone=${this.config.kickall}, ByBlacklist=${this.config.kickbybl}, Dad+=${this.config.dadplus}`);
       
-      // Check if kick mode is disabled (N/A mode)
-      if (this.config.modena) {
-        return; // N/A mode - kick disabled
+      // Parse JOIN message format: "JOIN <channel> <username> <userid> ..."
+      const parts = text.split(" ");
+      let username = "";
+      let userid = "";
+      
+      if (parts.length >= 4) {
+        username = parts[2] ? parts[2].toLowerCase() : "";
+        userid = parts[3] || "";
       }
       
+      console.log(`[WS${this.wsNumber}] BAN mode - checking user: ${username} (${userid})`);
+      
+      if (!userid || !username) return;
+      
+      // Skip self
+      if (userid === this.useridg) {
+        console.log(`[WS${this.wsNumber}] Skipping self in BAN mode`);
+        return;
+      }
+      
+      // Skip planet founder (owner) - can't ban the owner!
+      if (userid === this.founderUserId) {
+        console.log(`[WS${this.wsNumber}] Skipping BAN for planet founder ${userid}`);
+        this.addLog(this.wsNumber, `👑 Skipping BAN for planet owner`);
+        return;
+      }
+      
+      let shouldBan = false;
+      let reason = "";
+      
+      // Check "Everyone" mode - ban everyone
+      if (this.config.kickall) {
+        shouldBan = true;
+        reason = "everyone";
+        console.log(`[WS${this.wsNumber}] BAN mode - Everyone mode active, banning all users`);
+      }
+      
+      // Check "By Blacklist" mode
+      if (!shouldBan && this.config.kickbybl) {
+        const kblacklist = (this.config.kblacklist || "").toLowerCase().split("\n").filter(k => k.trim());
+        const kgangblacklist = (this.config.kgangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+        
+        console.log(`[WS${this.wsNumber}] BAN mode - Kick Blacklist Users: [${kblacklist.join(', ')}]`);
+        console.log(`[WS${this.wsNumber}] BAN mode - Kick Blacklist Clans: [${kgangblacklist.join(', ')}]`);
+        
+        // Check kblacklist (kick username blacklist)
+        for (const blocked of kblacklist) {
+          if (blocked && username.includes(blocked)) {
+            shouldBan = true;
+            reason = `kblacklist: ${blocked}`;
+            console.log(`[WS${this.wsNumber}] BAN mode - MATCH in kblacklist: ${blocked}`);
+            break;
+          }
+        }
+        
+        // Check kgangblacklist (kick gang blacklist)
+        if (!shouldBan) {
+          for (const gang of kgangblacklist) {
+            if (gang && username.includes(gang)) {
+              shouldBan = true;
+              reason = `kgangblacklist: ${gang}`;
+              console.log(`[WS${this.wsNumber}] BAN mode - MATCH in kgangblacklist: ${gang}`);
+              break;
+            }
+          }
+        }
+      }
+      
+      // Dad+ mode - request user info to check for aura
+      if (this.config.dadplus && !shouldBan) {
+        console.log(`[WS${this.wsNumber}] Dad+ mode - Requesting user info for ${userid}`);
+        ws.send(`WHOIS ${userid}\r\n`);
+      }
+      
+      // Execute BAN if conditions met
+      if (shouldBan) {
+        console.log(`[WS${this.wsNumber}] BAN mode - Sending BAN command for ${userid}`);
+        this.addLog(this.wsNumber, `🚫 Banning ${username} (${userid}) - Reason: ${reason}`);
+        ws.send(`BAN ${userid}\r\n`);
+      } else {
+        console.log(`[WS${this.wsNumber}] BAN mode - No conditions met, not banning ${username}`);
+      }
+      
+    } catch (error) {
+      console.error(`[WS${this.wsNumber}] Error in handleJoinBanMode:`, error);
+    }
+  }
+
+  // JOIN Handler #5 - Kick/Imprison mode (For ALL codes 1-5)
+  handleJoinKickMode(ws, snippets, text) {
+    try {
       // Parse JOIN message format: "JOIN - username userid ..." or "JOIN userid username ..."
       const parts = text.split(" ");
       let username = "";
       let userid = "";
       
-      if (parts[1] === "-") {
+      // Format: JOIN <channel> <username> <userid> ...
+      if (parts.length >= 4) {
         username = parts[2] ? parts[2].toLowerCase() : "";
         userid = parts[3] || "";
-      } else {
-        userid = parts[1] || "";
-        username = parts[2] ? parts[2].toLowerCase() : "";
       }
       
       if (!userid || !username) return;
@@ -619,79 +1226,118 @@ class FinalCompleteGameLogic {
       // Skip self
       if (userid === this.useridg) return;
       
-      // DEBUG: Log kick configuration (only log once per connection)
+      // Skip planet founder (owner) - can't kick/imprison the owner!
+      if (userid === this.founderUserId) {
+        console.log(`[WS${this.wsNumber}] Skipping action for planet founder ${userid}`);
+        return;
+      }
+      
+      // Determine if we're in Kick or Imprison mode
+      const isKickMode = this.config.kickmode === true;
+      const actionType = isKickMode ? "Kick" : "Imprison";
+      
+      // DEBUG: Log configuration (only log once per connection)
       if (!this._kickConfigLogged) {
-        this.addLog(this.wsNumber, `🔍 Kick Config: kickall=${this.config.kickall}, kickbybl=${this.config.kickbybl}, dadplus=${this.config.dadplus}, modena=${this.config.modena}`);
+        this.addLog(this.wsNumber, `🔍 Mode: ${actionType} | Everyone=${this.config.kickall}, ByBlacklist=${this.config.kickbybl}, Dad+=${this.config.dadplus}`);
         this._kickConfigLogged = true;
       }
       
-      let shouldKick = false;
+      let shouldAct = false;
       let reason = "";
       
-      // Check kickall mode - kick everyone
+      // Check "Everyone" mode - kick/imprison everyone
       if (this.config.kickall) {
-        shouldKick = true;
-        reason = "kickall";
+        shouldAct = true;
+        reason = "everyone";
       }
       
-      // Dad+ mode is handled separately in handle860Message (checks for "aura")
-      // Not processed here in JOIN handler
+      // Dad+ mode - request user info to check for aura
+      if (this.config.dadplus && !shouldAct) {
+        console.log(`[WS${this.wsNumber}] Dad+ mode - Requesting user info for ${userid}`);
+        ws.send(`WHOIS ${userid}\r\n`);
+      }
       
-      // Check kickbybl mode - kick by blacklist
-      if (!shouldKick && this.config.kickbybl) {
-        // Check kblacklist (kick username blacklist)
-        const kblacklist = (this.config.kblacklist || "").toLowerCase().split("\n").filter(k => k.trim());
-        for (const blocked of kblacklist) {
-          if (blocked && username.includes(blocked)) {
-            shouldKick = true;
-            reason = `kblacklist: ${blocked}`;
-            break;
-          }
-        }
-        
-        // Check kgangblacklist (kick gang blacklist)
-        if (!shouldKick) {
-          const kgangblacklist = (this.config.kgangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
-          for (const gang of kgangblacklist) {
-            if (gang && username.includes(gang)) {
-              shouldKick = true;
-              reason = `kgangblacklist: ${gang}`;
+      // Check "By Blacklist" mode
+      if (!shouldAct && this.config.kickbybl) {
+        // Use appropriate blacklists based on mode
+        if (isKickMode) {
+          // KICK MODE: Use kblacklist and kgangblacklist
+          const kblacklist = (this.config.kblacklist || "").toLowerCase().split("\n").filter(k => k.trim());
+          for (const blocked of kblacklist) {
+            if (blocked && username.includes(blocked)) {
+              shouldAct = true;
+              reason = `kblacklist: ${blocked}`;
               break;
             }
           }
-        }
-        
-        // Also check regular blacklist if kickbybl is enabled
-        if (!shouldKick) {
+          
+          if (!shouldAct) {
+            const kgangblacklist = (this.config.kgangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+            for (const gang of kgangblacklist) {
+              if (gang && username.includes(gang)) {
+                shouldAct = true;
+                reason = `kgangblacklist: ${gang}`;
+                break;
+              }
+            }
+          }
+        } else {
+          // IMPRISON MODE: Use blacklist and gangblacklist
           const blacklist = (this.config.blacklist || "").toLowerCase().split("\n").filter(b => b.trim());
           for (const blocked of blacklist) {
             if (blocked && username.includes(blocked)) {
-              shouldKick = true;
+              shouldAct = true;
               reason = `blacklist: ${blocked}`;
               break;
             }
           }
-        }
-        
-        // Also check gangblacklist if kickbybl is enabled
-        if (!shouldKick) {
-          const gangblacklist = (this.config.gangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
-          for (const gang of gangblacklist) {
-            if (gang && username.includes(gang)) {
-              shouldKick = true;
-              reason = `gangblacklist: ${gang}`;
-              break;
+          
+          if (!shouldAct) {
+            const gangblacklist = (this.config.gangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+            for (const gang of gangblacklist) {
+              if (gang && username.includes(gang)) {
+                shouldAct = true;
+                reason = `gangblacklist: ${gang}`;
+                break;
+              }
             }
           }
         }
       }
       
-      // Execute kick if conditions met
-      if (shouldKick && this.config.kickmode) {
-        this.addLog(this.wsNumber, `👢 Kicking ${username} (${userid}) - Reason: ${reason}`);
-        ws.send(`KICK ${userid}\r\n`);
-      } else if (!shouldKick) {
-        this.addLog(this.wsNumber, `✅ No Kick: ${username} (${userid}) - No kick conditions met`);
+      // Execute action if conditions met
+      if (shouldAct) {
+        // Timer shift: use average of attack + waiting when enabled
+        const attackTime = parseInt(this.config[`attack${this.wsNumber}`] || 1940);
+        const waitingTime = parseInt(this.config[`waiting${this.wsNumber}`] || 1910);
+        const timing = this.config.timershift ? Math.round((attackTime + waitingTime) / 2) : attackTime;
+        const timingLabel = this.config.timershift ? "Auto" : "Attack";
+        
+        this.addLog(this.wsNumber, `⚡ ${timingLabel} ${username} in ${timing}ms`);
+        
+        // Wait for timing before sending action
+        setTimeout(() => {
+          if (ws.readyState === ws.OPEN) {
+            if (isKickMode) {
+              this.addLog(this.wsNumber, `👢 Kicking ${username} (${userid}) - Reason: ${reason}`);
+              ws.send(`KICK ${userid}\r\n`);
+            } else {
+              this.addLog(this.wsNumber, `⚔️ Imprisoning ${username} (${userid}) - Reason: ${reason}`);
+              ws.send(`ACTION 3 ${userid}\r\n`);
+            }
+            
+            // QUIT immediately after action (matches bestscript.js)
+            ws.send("QUIT :ds\r\n");
+            this.addLog(this.wsNumber, `🚪 QUIT`);
+            
+            // Trigger auto-reconnect if sleeping mode is enabled
+            if (this.config.sleeping) {
+              this.OffSleep(ws);
+            }
+          }
+        }, timing);
+      } else {
+        this.addLog(this.wsNumber, `✅ No Action: ${username} (${userid}) - No conditions met`);
       }
       
     } catch (error) {
@@ -732,9 +1378,16 @@ class FinalCompleteGameLogic {
 
       if (!isWhitelisted && !this.userFound) {
         const parts = text.split(" ");
-        if (parts.length >= 3) {
-          const matchedId = parts[1];
+        if (parts.length >= 4) {
+          // Format: JOIN <channel> <username> <userid>
+          const matchedId = parts[3];
           const matchedUser = parts[2] || "unknown";
+          
+          // Skip founder
+          if (matchedId === this.founderUserId) {
+            this.addLog(this.wsNumber, `👑 Skipping planet owner in low sec mode`);
+            return;
+          }
           
           this.userFound = true;
           this.useridattack = matchedId;
@@ -772,21 +1425,26 @@ class FinalCompleteGameLogic {
 
   // JOIN Router - Calls all handlers
   handleJoinMessage(ws, snippets, text) {
-    // Always check kick mode first (for ws5)
-    if (this.wsNumber === 5) {
-      this.handleJoinKickMode(ws, snippets, text);
+    // DEBUG: Log mode configuration
+    console.log(`[WS${this.wsNumber}] JOIN handler - modena=${this.config.modena}, kickmode=${this.config.kickmode}, kickall=${this.config.kickall}`);
+    
+    // Check N/A mode first - applies to ALL connections (ws1-5)
+    if (this.config.modena === true) {
+      console.log(`[WS${this.wsNumber}] Using BAN mode (N/A selected)`);
+      this.handleJoinBanMode(ws, snippets, text);
       return;
     }
     
-    // For ws1-4, use normal attack/defense logic
+    // Check Low Sec mode
     if (this.config.lowsecmode) {
+      console.log(`[WS${this.wsNumber}] Using Low Sec mode`);
       this.handleJoinLowSec(ws, snippets, text);
-    } else {
-      // Normal mode - call all handlers
-      this.handleJoinAttackMode(ws, snippets, text);
-      this.handleJoinDefenseMode(ws, snippets, text);
-      this.handleJoinTargetTracking(ws, snippets, text);
+      return;
     }
+    
+    // ALL codes (1-5) - Use unified kick/imprison mode handler
+    console.log(`[WS${this.wsNumber}] Using Kick/Imprison mode`);
+    this.handleJoinKickMode(ws, snippets, text);
   }
 
   // ========================================
@@ -864,23 +1522,92 @@ class FinalCompleteGameLogic {
   
   handle860Message(ws, snippets, text) {
     try {
-      // Only process for ws5 (kick account) and if Dad+ mode is enabled
-      if (this.wsNumber !== 5) return;
+      // Check if Dad+ mode is enabled
       if (!this.config.dadplus) return;
-      if (!this.config.kickmode) return;
       
       // Check if message contains "aura" (special effect/status)
       const textLower = text.toLowerCase();
-      if (textLower.includes("aura")) {
-        const userid = snippets[1];
+      if (!textLower.includes("aura")) return;
+      
+      // Parse batch 860 response - can contain multiple users
+      // Format: 860 userid1 data1 userid2 data2 userid3 data3 ...
+      // We need to find all userids that have "aura" in their data
+      
+      console.log(`[WS${this.wsNumber}] Dad+ mode - Processing 860 message with aura`);
+      
+      // Split by "aura" to find user IDs with aura
+      const parts = text.split(/\s+/); // Split by whitespace
+      const usersWithAura = [];
+      
+      // Find all numeric user IDs (length >= 6) that are followed by data containing "aura"
+      for (let i = 1; i < parts.length; i++) {
+        const part = parts[i];
+        // Check if this is a user ID (numeric, length >= 6)
+        if (!isNaN(part) && part.length >= 6) {
+          // Check if the next few parts contain "aura"
+          let hasAura = false;
+          for (let j = i + 1; j < Math.min(i + 5, parts.length); j++) {
+            if (parts[j].toLowerCase().includes("aura")) {
+              hasAura = true;
+              break;
+            }
+          }
+          if (hasAura) {
+            usersWithAura.push(part);
+          }
+        }
+      }
+      
+      console.log(`[WS${this.wsNumber}] Dad+ mode - Found ${usersWithAura.length} user(s) with aura: [${usersWithAura.join(', ')}]`);
+      
+      // Process each user with aura
+      usersWithAura.forEach((userid, index) => {
+        console.log(`[WS${this.wsNumber}] Dad+ mode - Checking user with aura: ${userid}`);
         
         // Skip self
-        if (userid === this.useridg) return;
+        if (userid === this.useridg) {
+          console.log(`[WS${this.wsNumber}] Dad+ mode - Skipping self: ${userid}`);
+          return;
+        }
         
-        // Kick user with aura
-        this.addLog(this.wsNumber, `👢 Dad+ Kicking user with aura: ${userid}`);
-        ws.send(`KICK ${userid}\r\n`);
-      }
+        // Skip founder
+        if (userid === this.founderUserId) {
+          console.log(`[WS${this.wsNumber}] Dad+ mode - Skipping founder: ${userid}`);
+          this.addLog(this.wsNumber, `👑 Skipping Dad+ action for planet owner`);
+          return;
+        }
+        
+        // Stagger actions to avoid flooding
+        setTimeout(() => {
+          if (ws.readyState !== ws.OPEN) return;
+          
+          // Check which mode we're in
+          if (this.config.modena === true) {
+            // N/A mode - BAN user with aura (applies to ALL connections)
+            console.log(`[WS${this.wsNumber}] Dad+ mode - BAN user with aura: ${userid}`);
+            this.addLog(this.wsNumber, `🚫 Dad+ Banning user with aura: ${userid}`);
+            ws.send(`BAN ${userid}\r\n`);
+          } else if (this.wsNumber === 5) {
+            // Code 5 - Check if Kick or Imprison mode
+            if (this.config.kickmode === true) {
+              // Kick mode
+              console.log(`[WS${this.wsNumber}] Dad+ mode - KICK user with aura: ${userid}`);
+              this.addLog(this.wsNumber, `👢 Dad+ Kicking user with aura: ${userid}`);
+              ws.send(`KICK ${userid}\r\n`);
+            } else {
+              // Imprison mode
+              console.log(`[WS${this.wsNumber}] Dad+ mode - IMPRISON user with aura: ${userid}`);
+              this.addLog(this.wsNumber, `⚔️ Dad+ Imprisoning user with aura: ${userid}`);
+              ws.send(`ACTION 3 ${userid}\r\n`);
+            }
+          } else {
+            // Code 1-4 - Regular attack mode (imprison)
+            console.log(`[WS${this.wsNumber}] Dad+ mode - IMPRISON user with aura: ${userid}`);
+            this.addLog(this.wsNumber, `⚔️ Dad+ Imprisoning user with aura: ${userid}`);
+            ws.send(`ACTION 3 ${userid}\r\n`);
+          }
+        }, index * 100); // Stagger by 100ms
+      });
     } catch (error) {
       console.error(`[WS${this.wsNumber}] Error in handle860Message:`, error);
     }
@@ -894,9 +1621,16 @@ class FinalCompleteGameLogic {
     try {
       const userid = snippets[1];
       
+      // Check if leaving user is the planet founder
+      const isFounder = (userid === this.founderUserId);
+      
       // Check if it's our target
       if (userid === this.useridtarget) {
-        this.addLog(this.wsNumber, `👋 Target left: ${userid}`);
+        if (isFounder) {
+          this.addLog(this.wsNumber, `👑 Planet owner left: ${userid} - staying on planet`);
+        } else {
+          this.addLog(this.wsNumber, `👋 Target left: ${userid}`);
+        }
         
         // Timer shift: Decrement if left before 3-second event
         if (this.config.timershift && !this.threesec) {
@@ -916,6 +1650,14 @@ class FinalCompleteGameLogic {
           this.timeout = null;
         }
         
+        // If founder left, DON'T quit - stay on planet and wait for other rivals
+        if (isFounder) {
+          this.addLog(this.wsNumber, `⏸️ Waiting for other rivals on planet`);
+          // Don't send QUIT, don't reconnect - just stay connected and wait
+          return;
+        }
+        
+        // For non-founder targets, proceed with normal quit/reconnect logic
         if (this.config.exitting) {
           setTimeout(() => {
             if (ws.readyState === ws.OPEN) {
@@ -944,6 +1686,24 @@ class FinalCompleteGameLogic {
         this.attacknames.splice(attackIndex, 1);
       }
 
+      // SMART MODE: Switch to new target if current target left
+      if (this.config.smart && userid === this.useridattack && this.attackids.length > 0) {
+        const rand = Math.floor(Math.random() * this.attackids.length);
+        this.useridattack = this.attackids[rand];
+        const targetname = this.attacknames[rand];
+        this.addLog(this.wsNumber, `🎯 New Target: ${targetname}`);
+      }
+      
+      // SMART MODE: Clear timeout if no targets left
+      if (this.config.smart && this.targetids.length === 0) {
+        if (this.timeout) {
+          clearTimeout(this.timeout);
+          this.timeout = null;
+        }
+        this.userFound = false;
+        this.addLog(this.wsNumber, `⏸️ Standing now..`);
+      }
+
     } catch (error) {
       console.error(`[WS${this.wsNumber}] Error in handlePart:`, error);
     }
@@ -957,9 +1717,17 @@ class FinalCompleteGameLogic {
     try {
       const userid = snippets[1] ? snippets[1].replace(/(\r\n|\n|\r)/gm, "") : "";
       
+      // Check if sleeping user is the planet founder
+      const isFounder = (userid === this.founderUserId);
+      
       // Check if it's our target
       if (userid === this.useridtarget) {
-        this.addLog(this.wsNumber, `💤 Target sleeping: ${userid}`);
+        if (isFounder) {
+          this.addLog(this.wsNumber, `👑 Planet owner sleeping: ${userid} - staying on planet`);
+        } else {
+          this.addLog(this.wsNumber, `💤 Target sleeping: ${userid}`);
+        }
+        
         this.userFound = false;
         this.useridtarget = null;
         this.useridattack = null;
@@ -969,6 +1737,14 @@ class FinalCompleteGameLogic {
           this.timeout = null;
         }
         
+        // If founder is sleeping, DON'T quit - stay on planet and wait for other rivals
+        if (isFounder) {
+          this.addLog(this.wsNumber, `⏸️ Waiting for other rivals on planet`);
+          // Don't send QUIT, don't reconnect - just stay connected and wait
+          return;
+        }
+        
+        // For non-founder targets, proceed with normal quit/reconnect logic
         if (this.config.sleeping || this.config.exitting) {
           setTimeout(() => {
             if (ws.readyState === ws.OPEN) {
@@ -998,6 +1774,24 @@ class FinalCompleteGameLogic {
         this.attacknames.splice(attackIndex, 1);
       }
 
+      // SMART MODE: Switch to new target if current target is sleeping
+      if (this.config.smart && userid === this.useridattack && this.attackids.length > 0) {
+        const rand = Math.floor(Math.random() * this.attackids.length);
+        this.useridattack = this.attackids[rand];
+        const targetname = this.attacknames[rand];
+        this.addLog(this.wsNumber, `🎯 New Target: ${targetname}`);
+      }
+      
+      // SMART MODE: Clear timeout if no targets left
+      if (this.config.smart && this.targetids.length === 0) {
+        if (this.timeout) {
+          clearTimeout(this.timeout);
+          this.timeout = null;
+        }
+        this.userFound = false;
+        this.addLog(this.wsNumber, `⏸️ Standing now..`);
+      }
+
     } catch (error) {
       console.error(`[WS${this.wsNumber}] Error in handleSleep:`, error);
     }
@@ -1007,11 +1801,151 @@ class FinalCompleteGameLogic {
   // PRISON ESCAPE FUNCTION (HTTPS API - Diamond Method)
   // ========================================
   
-  async escapeViaDiamond() {
+  // Main escape function that calls escape attempts ONLY for configured RCs
+  async escapeAll() {
+    try {
+      // Check if we're actually in prison first
+      if (!this.inPrison) {
+        console.log(`[WS${this.wsNumber}] Not in prison (inPrison=${this.inPrison}), skipping escape`);
+        this.addLog(this.wsNumber, `ℹ️ Not in prison - no escape needed`);
+        return false;
+      }
+      
+      console.log(`[WS${this.wsNumber}] In prison - proceeding with escape attempts`);
+      
+      // Build list of escape functions to call (only for configured RCs)
+      const escapeFunctions = [];
+      
+      // Main codes
+      if (this.config.rc1 && this.config.rc1 !== '') {
+        escapeFunctions.push({ fn: this.escape1(), label: 'RC1' });
+      }
+      if (this.config.rc2 && this.config.rc2 !== '') {
+        escapeFunctions.push({ fn: this.escape2(), label: 'RC2' });
+      }
+      if (this.config.rc3 && this.config.rc3 !== '') {
+        escapeFunctions.push({ fn: this.escape3(), label: 'RC3' });
+      }
+      if (this.config.rc4 && this.config.rc4 !== '') {
+        escapeFunctions.push({ fn: this.escape4(), label: 'RC4' });
+      }
+      if (this.config.rc5 && this.config.rc5 !== '') {
+        escapeFunctions.push({ fn: this.escape5(), label: 'RC5' });
+      }
+      
+      // Alternate codes
+      if (this.config.rcl1 && this.config.rcl1 !== '') {
+        escapeFunctions.push({ fn: this.escapeL1(), label: 'RCL1' });
+      }
+      if (this.config.rcl2 && this.config.rcl2 !== '') {
+        escapeFunctions.push({ fn: this.escapeL2(), label: 'RCL2' });
+      }
+      if (this.config.rcl3 && this.config.rcl3 !== '') {
+        escapeFunctions.push({ fn: this.escapeL3(), label: 'RCL3' });
+      }
+      if (this.config.rcl4 && this.config.rcl4 !== '') {
+        escapeFunctions.push({ fn: this.escapeL4(), label: 'RCL4' });
+      }
+      if (this.config.rcl5 && this.config.rcl5 !== '') {
+        escapeFunctions.push({ fn: this.escapeL5(), label: 'RCL5' });
+      }
+      
+      if (escapeFunctions.length === 0) {
+        console.log(`[WS${this.wsNumber}] No recovery codes configured, skipping escape`);
+        return false;
+      }
+      
+      const configuredRCs = escapeFunctions.map(e => e.label).join(', ');
+      console.log(`[WS${this.wsNumber}] Attempting escape with configured accounts: ${configuredRCs}`);
+      this.addLog(this.wsNumber, `🔓 Attempting escape with: ${configuredRCs}`);
+      
+      // Call all configured escape functions in parallel
+      const results = await Promise.all(escapeFunctions.map(e => e.fn));
+      
+      console.log(`[WS${this.wsNumber}] All escape attempts completed`);
+      
+      // Return true if ANY escape succeeded
+      const anySuccess = results.some(r => r === true);
+      if (anySuccess) {
+        this.addLog(this.wsNumber, `✅ Escape successful!`);
+        // Clear prison flag after successful escape
+        this.inPrison = false;
+        console.log(`[WS${this.wsNumber}] Escape successful - clearing inPrison flag`);
+      } else {
+        this.addLog(this.wsNumber, `❌ All escape attempts failed`);
+      }
+      return anySuccess;
+    } catch (error) {
+      console.error(`[WS${this.wsNumber}] Error during escape sequence:`, error);
+      return false;
+    }
+  }
+  
+  // Escape using rc1 credentials
+  async escape1() {
+    return this.escapeWithCode(this.config.rc1, 'RC1');
+  }
+  
+  // Escape using rc2 credentials
+  async escape2() {
+    return this.escapeWithCode(this.config.rc2, 'RC2');
+  }
+  
+  // Escape using rc3 credentials
+  async escape3() {
+    return this.escapeWithCode(this.config.rc3, 'RC3');
+  }
+  
+  // Escape using rc4 credentials
+  async escape4() {
+    return this.escapeWithCode(this.config.rc4, 'RC4');
+  }
+  
+  // Escape using rc5 credentials
+  async escape5() {
+    return this.escapeWithCode(this.config.rc5, 'RC5');
+  }
+  
+  // Escape using rcl1 credentials (alternate)
+  async escapeL1() {
+    return this.escapeWithCode(this.config.rcl1, 'RCL1');
+  }
+  
+  // Escape using rcl2 credentials (alternate)
+  async escapeL2() {
+    return this.escapeWithCode(this.config.rcl2, 'RCL2');
+  }
+  
+  // Escape using rcl3 credentials (alternate)
+  async escapeL3() {
+    return this.escapeWithCode(this.config.rcl3, 'RCL3');
+  }
+  
+  // Escape using rcl4 credentials (alternate)
+  async escapeL4() {
+    return this.escapeWithCode(this.config.rcl4, 'RCL4');
+  }
+  
+  // Escape using rcl5 credentials (alternate)
+  async escapeL5() {
+    return this.escapeWithCode(this.config.rcl5, 'RCL5');
+  }
+  
+  // Generic escape function - tries to escape using current account credentials
+  async escapeWithCode(recoveryCode, label) {
+    if (!recoveryCode || recoveryCode === '') {
+      return false; // Silently skip if no code configured
+    }
+    
+    // Use current account's credentials (they're already authenticated)
+    return await this.escapeViaDiamond(label);
+  }
+  
+  // Legacy function for backward compatibility
+  async escapeViaDiamond(label = 'Current') {
     try {
       if (!this.useridg || !this.passwordg) {
-        this.addLog(this.wsNumber, `⚠️ Cannot escape: missing user credentials`);
-        return false;
+        return false; // Silently fail if no credentials
       }
 
       const userID = this.useridg;
@@ -1050,7 +1984,25 @@ class FinalCompleteGameLogic {
           'Content-Type': `multipart/form-data; boundary=${boundary}`,
           'Content-Length': Buffer.byteLength(formData),
           'Accept': '*/*',
-          'X-Galaxy-Platform': 'web'
+          'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8',
+          'Priority': 'u=1, i',
+          'Sec-CH-UA': '"Google Chrome";v="137", "Chromium";v="137", "Not/A)Brand";v="24"',
+          'Sec-CH-UA-Mobile': '?0',
+          'Sec-CH-UA-Platform': '"Windows"',
+          'Sec-Fetch-Dest': 'empty',
+          'Sec-Fetch-Mode': 'cors',
+          'Sec-Fetch-Site': 'same-origin',
+          'X-Galaxy-Client-Ver': '9.5',
+          'X-Galaxy-Kbv': '352',
+          'X-Galaxy-Lng': 'en',
+          'X-Galaxy-Model': 'chrome 137.0.0.0',
+          'X-Galaxy-Orientation': 'portrait',
+          'X-Galaxy-Os-Ver': '1',
+          'X-Galaxy-Platform': 'web',
+          'X-Galaxy-Scr-Dpi': '1',
+          'X-Galaxy-Scr-H': '675',
+          'X-Galaxy-Scr-W': '700',
+          'X-Galaxy-User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36'
         }
       };
       
@@ -1059,21 +2011,32 @@ class FinalCompleteGameLogic {
           let data = '';
           res.on('data', (chunk) => data += chunk);
           res.on('end', () => {
-            // Log the actual response for debugging
-            this.addLog(this.wsNumber, `🔍 Escape response: ${data.substring(0, 100)}`);
+            // Log the actual response for debugging (first 200 chars)
+            const responsePreview = data ? data.substring(0, 200).replace(/\s+/g, ' ') : 'empty';
+            console.log(`[WS${this.wsNumber}] ${label} escape response:`, responsePreview);
             
-            if (data && data.includes && data.includes("Wrong escape type")) {
-              this.addLog(this.wsNumber, `⚠️ Wrong escape type (no diamond?)`);
+            // Check for various response conditions
+            if (!data || data.length === 0) {
+              this.addLog(this.wsNumber, `⚠️ Empty response from escape API`);
               resolve(false);
-            } else if (data && data.includes && data.includes("not in prison")) {
+            } else if (data.includes("Wrong escape type")) {
+              this.addLog(this.wsNumber, `⚠️ Wrong escape type (no diamond or not in prison)`);
+              resolve(false);
+            } else if (data.includes("not in prison") || data.includes("not imprisoned")) {
               this.addLog(this.wsNumber, `ℹ️ Not in prison - no escape needed`);
               resolve(false);
-            } else if (data && data.includes && (data.includes("success") || data.includes("escaped"))) {
-              this.addLog(this.wsNumber, `✅ Escape successful (diamond used)`);
+            } else if (data.includes("error") || data.includes("Error") || data.includes('"success":false')) {
+              // Check for errors FIRST before checking for success
+              console.log(`[WS${this.wsNumber}] ${label}: Escape failed - API error`);
+              resolve(false);
+            } else if (data.includes('"freeResult":{"success":true}') || data.includes('"success":true') || data.includes("escaped") || data.includes("free")) {
+              // Check for freeResult success (like bestscript.js does)
+              console.log(`[WS${this.wsNumber}] ${label}: Escape successful!`);
+              this.addLog(this.wsNumber, `✅ ${label} escape successful!`);
               resolve(true);
             } else {
-              // Unknown response - assume not in prison or failed
-              this.addLog(this.wsNumber, `⚠️ Escape attempt unclear - may not be in prison`);
+              // If response doesn't match any pattern, assume it failed
+              console.log(`[WS${this.wsNumber}] ${label}: Unknown response`);
               resolve(false);
             }
           });
@@ -1104,32 +2067,50 @@ class FinalCompleteGameLogic {
   
   handle900Message(ws, snippets, text) {
     try {
-      if (snippets[1]) {
-        const planetInfo = snippets.slice(1).join(" ");
-        this.addLog(this.wsNumber, `🌍 Current Planet: ${planetInfo}`);
+      // ALWAYS log 900 messages for debugging
+      const planetInfo = snippets.slice(1).join(" ");
+      const plnt = snippets[1];
+      
+      // Update current planet and prison status
+      this.currentPlanet = plnt;
+      this.inPrison = plnt && plnt.slice(0, 6) === "Prison";
+      
+      this.addLog(this.wsNumber, `📍 900 Message - Planet: ${planetInfo}`);
+      console.log(`[WS${this.wsNumber}] Prison status: ${this.inPrison}, Planet: ${plnt}`);
+
+      if (this.config.autorelease && this.inPrison) {
+        this.addLog(this.wsNumber, `🔓 Prison detected - attempting escape`);
+        
+        setTimeout(async () => {
+          // Call escapeAll (HTTPS API only, like bestscript.js)
+          await this.escapeAll();
+          
+          // Rejoin target planet after escape
+          const targetPlanet = this.config.planet;
+          if (targetPlanet) {
+            setTimeout(() => {
+              if (ws.readyState === ws.OPEN) {
+                ws.send(`JOIN ${targetPlanet}\r\n`);
+                this.addLog(this.wsNumber, `🔄 Rejoining ${targetPlanet}`);
+              }
+            }, 3000);
+          }
+        }, 1000);
       }
 
-      // DEBUG: Log autorelease status
-      this.addLog(this.wsNumber, `🔍 Autorelease: ${this.config.autorelease}, Planet: ${snippets[1]}`);
-
-      if (this.config.autorelease) {
-        const plnt = snippets[1];
-        if (plnt && plnt.slice(0, 6) === "Prison") {
-          this.addLog(this.wsNumber, `🔓 Prison detected - attempting escape`);
-          
+      // Also check for PRISON message format
+      if (snippets[1] === "PRISON" && snippets[2] === "0") {
+        // Update prison status
+        this.inPrison = true;
+        this.currentPlanet = "Prison";
+        console.log(`[WS${this.wsNumber}] PRISON message detected - setting inPrison=true`);
+        
+        if (this.config.autorelease) {
+          this.addLog(this.wsNumber, `🔓 Prison status detected - escaping`);
           setTimeout(async () => {
-            // Try HTTPS diamond escape first (premium method)
-            const escaped = await this.escapeViaDiamond();
+            // Call escapeAll (HTTPS API only, like bestscript.js)
+            await this.escapeAll();
             
-            if (!escaped) {
-              // Fallback to simple ACTION 2 (free method)
-              if (ws.readyState === ws.OPEN) {
-                ws.send("ACTION 2\r\n");
-                this.addLog(this.wsNumber, `🏃 Sent ACTION 2 (free escape)`);
-              }
-            }
-            
-            // Rejoin target planet after escape
             const targetPlanet = this.config.planet;
             if (targetPlanet) {
               setTimeout(() => {
@@ -1141,30 +2122,6 @@ class FinalCompleteGameLogic {
             }
           }, 1000);
         }
-      }
-
-      if (snippets[1] === "PRISON" && snippets[2] === "0" && this.config.autorelease) {
-        this.addLog(this.wsNumber, `🔓 Prison status detected - escaping`);
-        setTimeout(async () => {
-          const escaped = await this.escapeViaDiamond();
-          
-          if (!escaped) {
-            if (ws.readyState === ws.OPEN) {
-              ws.send("ACTION 2\r\n");
-              this.addLog(this.wsNumber, `🏃 Sent ACTION 2 (free escape)`);
-            }
-          }
-          
-          const targetPlanet = this.config.planet;
-          if (targetPlanet) {
-            setTimeout(() => {
-              if (ws.readyState === ws.OPEN) {
-                ws.send(`JOIN ${targetPlanet}\r\n`);
-                this.addLog(this.wsNumber, `🔄 Rejoining ${targetPlanet}`);
-              }
-            }, 3000);
-          }
-        }, 1000);
       }
 
     } catch (error) {

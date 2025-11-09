@@ -43,11 +43,12 @@ let appState = {
     rc2: "",
     rc3: "",
     rc4: "",
-    kickrc: "",
+    rc5: "",  // NEW: Code 5 (replaces kickrc)
     rcl1: "",
     rcl2: "",
     rcl3: "",
     rcl4: "",
+    rcl5: "", // NEW: Code 5 Alt
     planet: "",
     device: "312", // android
     autorelease: false,
@@ -55,7 +56,7 @@ let appState = {
     lowsecmode: false,
     exitting: true,
     sleeping: false,
-    kickmode: true,
+    kickmode: true,  // NEW: true = Kick mode, false = Imprison mode
     blacklist: "",
     gangblacklist: "",
     kblacklist: "",
@@ -64,10 +65,12 @@ let appState = {
     attack2: 1940,
     attack3: 1940,
     attack4: 1940,
+    attack5: 1940,  // NEW: Code 5 attack timing
     waiting1: 1910,
     waiting2: 1910,
     waiting3: 1910,
     waiting4: 1910,
+    waiting5: 1910, // NEW: Code 5 waiting timing
     // Timer shift settings
     timershift: false,
     incrementvalue: 10,
@@ -184,7 +187,8 @@ const connectionPool = {
   ws1: { useMain: true, mainCode: null, altCode: null },
   ws2: { useMain: true, mainCode: null, altCode: null },
   ws3: { useMain: true, mainCode: null, altCode: null },
-  ws4: { useMain: true, mainCode: null, altCode: null }
+  ws4: { useMain: true, mainCode: null, altCode: null },
+  ws5: { useMain: true, mainCode: null, altCode: null }  // NEW: Code 5 with rotation support
 };
 
 // Initialize connection pool with configured codes
@@ -201,18 +205,19 @@ function initializeConnectionPool() {
   connectionPool.ws4.mainCode = appState.config.rc4 || null;
   connectionPool.ws4.altCode = appState.config.rcl4 || null;
   
+  connectionPool.ws5.mainCode = appState.config.rc5 || null;  // NEW: Code 5
+  connectionPool.ws5.altCode = appState.config.rcl5 || null;  // NEW: Code 5 Alt
+  
   console.log('🔄 Connection pool initialized:');
   console.log(`  WS1: Main=${!!connectionPool.ws1.mainCode}, Alt=${!!connectionPool.ws1.altCode}`);
   console.log(`  WS2: Main=${!!connectionPool.ws2.mainCode}, Alt=${!!connectionPool.ws2.altCode}`);
   console.log(`  WS3: Main=${!!connectionPool.ws3.mainCode}, Alt=${!!connectionPool.ws3.altCode}`);
   console.log(`  WS4: Main=${!!connectionPool.ws4.mainCode}, Alt=${!!connectionPool.ws4.altCode}`);
+  console.log(`  WS5: Main=${!!connectionPool.ws5.mainCode}, Alt=${!!connectionPool.ws5.altCode}`);
 }
 
 // Get current code for wsNumber (rotates between main and alternate)
 function getCurrentCode(wsNumber) {
-  if (wsNumber === 5) {
-    return appState.config.kickrc; // Kick code has no alternate
-  }
   
   const wsKey = `ws${wsNumber}`;
   const pool = connectionPool[wsKey];
@@ -241,8 +246,6 @@ function getCurrentCode(wsNumber) {
 
 // Rotate to next code (main -> alt or alt -> main)
 function rotateCode(wsNumber) {
-  if (wsNumber === 5) return; // Kick code has no rotation
-  
   // Only rotate if rotateRC is enabled
   if (!appState.config.rotateRC) {
     return; // Keep using same code (normal behavior)
@@ -379,18 +382,93 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
     addLog(wsNumber, `✅ Connection established for code ${wsNumber}`);
   });
 
+  let messageCount = 0;
   ws.on('message', (data) => {
+    messageCount++;
     const text = data.toString();
-    const snippets = text.split(" ");
     
-    // Debug: Log ALL messages when auto-release is enabled
-    if (appState.config.autorelease && HEADLESS_MODE) {
-      console.log(`DEBUG ws${wsNumber} ALL messages:`, snippets.slice(0, 5).join(' '));
+    // RAW DATA CHECK: Log if 353 or 900 appears ANYWHERE in raw data
+    if (text.includes("353") || text.includes("900")) {
+      console.log(`\n🔍 RAW DATA CHECK - Message #${messageCount} contains 353 or 900:`);
+      console.log(`Raw bytes length: ${data.length}`);
+      console.log(`Text: ${text}`);
+      console.log(`\n`);
     }
     
-    // Debug: Log important messages
-    if (snippets[0] === "900" || snippets[0] === "HAAAPSI" || snippets[0] === "999" || (snippets[1] === "PRISON")) {
+    const snippets = text.split(" ");
+    
+    // Log COMPLETE raw messages (not truncated)
+    if (HEADLESS_MODE || appState.config.autorelease) {
+      // Show full message for important types, truncated for others
+      if (["353", "900", "JOIN", "PART", "SLEEP", "HAAAPSI", "999", "REGISTER", "DOMAINS"].includes(snippets[0])) {
+        console.log(`[WS${wsNumber}] MSG#${messageCount} FULL:`, text.substring(0, 500));
+      } else {
+        console.log(`[WS${wsNumber}] MSG#${messageCount} ${snippets[0]}:`, snippets.slice(1, 5).join(' '));
+      }
+    }
+    
+    // Log EVERY message completely for the first 50 messages after JOIN
+    if (messageCount >= 10 && messageCount <= 60) {
+      console.log(`\n[WS${wsNumber}] ===== COMPLETE MESSAGE #${messageCount} =====`);
+      console.log(text);
+      console.log(`========================================\n`);
+    }
+    
+    // PRIORITY: Check for 353 and 900 messages
+    if (snippets[0] === "353") {
+      console.log(`\n🌍 ========== 353 MESSAGE (USER LIST + PLANET) ==========`);
+      console.log(`[WS${wsNumber}] Planet: ${snippets[3]}`);
+      console.log(`[WS${wsNumber}] Full message:`, text);
+      console.log(`=========================================================\n`);
+      addLog(wsNumber, `📍 353 - Planet: ${snippets[3]}`);
+    }
+    
+    if (snippets[0] === "900") {
+      console.log(`\n🌍 ========== 900 MESSAGE (PLANET INFO) ==========`);
+      console.log(`[WS${wsNumber}] Planet:`, snippets[1]);
+      console.log(`[WS${wsNumber}] Full message:`, text);
+      console.log(`==================================================\n`);
+      addLog(wsNumber, `📍 900 - Planet: ${snippets[1]}`);
+    }
+    
+    // Check for PRISON message (snippets[1] === "PRISON") - EXACT LOGIC FROM BESTSCRIPT.JS
+    if (snippets[1] === "PRISON" && snippets[2] === "0") {
+      console.log(`\n🚨 ========== PRISON MESSAGE DETECTED ==========`);
+      console.log(`[WS${wsNumber}] Full message:`, text);
+      console.log(`===============================================\n`);
+      addLog(wsNumber, `🚔 PRISON detected: ${text.substring(0, 100)}`);
+      
+      // CRITICAL: Set inPrison flag immediately when PRISON message is detected
+      gameLogic.inPrison = true;
+      gameLogic.currentPlanet = "Prison";
+      console.log(`[WS${wsNumber}] Set inPrison=true from PRISON message`);
+      
+      if (appState.config.autorelease) {
+        console.log(`DEBUG ws${wsNumber} autorelease: PRISON 0 detected, triggering escape`);
+        setTimeout(async () => {
+          // Call escapeAll (HTTPS API only, like bestscript.js)
+          const escaped = await gameLogic.escapeAll();
+          console.log(`DEBUG ws${wsNumber}: Escape result: ${escaped}`);
+          
+          // After escape, rejoin target planet
+          const targetPlanet = appState.config.planet;
+          if (targetPlanet) {
+            setTimeout(() => {
+              if (ws.readyState === ws.OPEN) {
+                ws.send(`JOIN ${targetPlanet}\r\n`);
+                addLog(wsNumber, `🔄 Rejoining ${targetPlanet} after escape`);
+                console.log(`DEBUG ws${wsNumber} autorelease: rejoined planet after escape`);
+              }
+            }, 3000);
+          }
+        }, 1000);
+      }
+    }
+    
+    // Debug: Log important messages with full details
+    if (snippets[0] === "900" || snippets[0] === "HAAAPSI" || snippets[0] === "999" || snippets[0] === "PRISON") {
       console.log(`DEBUG ws${wsNumber} IMPORTANT:`, snippets[0], snippets[1], snippets[2]);
+      addLog(wsNumber, `📨 Received: ${snippets[0]} ${snippets[1] || ''} ${snippets[2] || ''}`);
     }
     
     // Handle HAAAPSI - MUST SAVE IT!
@@ -434,7 +512,7 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
       addLog(wsNumber, `Registered as: ${username}`);
     }
     
-    // Handle connection success
+    // Handle connection success - EXACT LOGIC FROM BESTSCRIPT.JS
     if (snippets[0] === "999") {
       console.log(`DEBUG ws${wsNumber}: Got 999 (authenticated), auto-escape enabled:`, appState.config.autorelease);
       ws.send("FWLISTVER 0\r\n");
@@ -442,20 +520,23 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
       ws.send("MYADDONS 0 0\r\n");
       ws.send("PHONE 1366 768 0 2 :chrome 113.0.0.0\r\n");
       
+      // SEND JOIN IMMEDIATELY (like bestscript.js does)
       const planet = appState.config.planet;
       if (planet && planet !== "") {
         ws.send(`JOIN ${planet}\r\n`);
-        addLog(wsNumber, `Successfully joined game. Joining ${planet}`);
+        addLog(wsNumber, `Connection established. Joining ${planet}`);
+        console.log(`[WS${wsNumber}] Sent JOIN ${planet}`);
       } else {
         ws.send("JOIN\r\n");
-        addLog(wsNumber, `Successfully joined game`);
+        addLog(wsNumber, `Connection established.`);
       }
       
       // Check prison status after connecting if auto-release is enabled
-      // The 900 message will tell us which planet we're on, and handle escape if needed
+      // NOTE: We don't call escape here anymore - we wait for 900/353/PRISON messages
+      // to tell us if we're actually in prison, then escape automatically
       if (appState.config.autorelease) {
-        console.log(`DEBUG ws${wsNumber}: Auto-release enabled, will check prison on 900 message`);
-        addLog(wsNumber, `🔓 Auto-release enabled - waiting for planet info`);
+        console.log(`DEBUG ws${wsNumber}: Auto-release enabled - will escape automatically if prison detected`);
+        addLog(wsNumber, `🔓 Auto-release enabled - monitoring for prison`);
       }
     }
     
@@ -468,8 +549,11 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
     }
     
     // Handle 900 - User joining planet (CRITICAL FOR AUTO-ATTACK/KICK)
-    if (snippets[0] === "900") {
+    // Check both exact match and trimmed version
+    const msgType = snippets[0].trim();
+    if (msgType === "900" || snippets[0] === "900") {
       console.log(`DEBUG ws${wsNumber}: 900 message received, planet:`, snippets[1], 'auto-escape enabled:', appState.config.autorelease);
+      console.log(`DEBUG ws${wsNumber}: Full 900 message:`, text.substring(0, 200));
       const plnt = snippets[1];
       if (appState.config.autorelease && plnt && plnt.slice(0, 6) === "Prison") {
         console.log(`DEBUG ws${wsNumber} autorelease: Prison detected, triggering escape`);
@@ -493,16 +577,50 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
       addLog(wsNumber, `Joined channel: ${snippets[1] || 'unknown'}`);
     }
     
-    // Handle 353 (channel user list)
+    // Handle 353 (channel user list) - THIS CONTAINS THE PLANET NAME!
     if (snippets[0] === "353") {
+      const planetName = snippets[3];
+      console.log(`[WS${wsNumber}] 📍 353 Message - Planet: ${planetName}`);
+      addLog(wsNumber, `📍 Joined planet: ${planetName}`);
+      
+      // Check for Prison and trigger auto-escape
+      if (appState.config.autorelease && planetName && planetName.slice(0, 6) === "Prison") {
+        console.log(`[WS${wsNumber}] 🔓 Prison detected in 353 message - triggering escape`);
+        addLog(wsNumber, `🔓 Prison detected - attempting escape`);
+        
+        setTimeout(async () => {
+          // Call escapeAll (HTTPS API only, like bestscript.js)
+          await gameLogic.escapeAll();
+          
+          const targetPlanet = appState.config.planet;
+          if (targetPlanet) {
+            setTimeout(() => {
+              if (ws.readyState === ws.OPEN) {
+                ws.send(`JOIN ${targetPlanet}\r\n`);
+                addLog(wsNumber, `🔄 Rejoining ${targetPlanet}`);
+              }
+            }, 3000);
+          }
+        }, 1000);
+      } else if (appState.config.autorelease && planetName) {
+        // Not in prison - log confirmation
+        console.log(`[WS${wsNumber}] ✅ Planet ${planetName} is not a prison - no escape needed`);
+        addLog(wsNumber, `✅ On ${planetName} - ready for action`);
+      }
+      
       gameLogic.handle353Message(ws, snippets, text);
-      addLog(wsNumber, `User list received for channel: ${snippets[3]}`);
     }
     
-    // Handle 471 (channel full or error)
+    // Handle 471 (channel full or error) - EXACT LOGIC FROM BESTSCRIPT.JS
     if (snippets[0] === "471") {
+      addLog(wsNumber, `⚠️ Error 471 - Channel full, joining fallback planet B`);
+      setTimeout(() => {
+        if (ws.readyState === ws.OPEN) {
+          ws.send("JOIN B\r\n");
+          console.log(`[WS${wsNumber}] Sent JOIN B (fallback after 471 error)`);
+        }
+      }, 1000);
       gameLogic.handle471Message(ws, snippets, text);
-      addLog(wsNumber, `Error 471: ${text}`);
     }
     
     // Handle QUIT (connection closing)
@@ -527,10 +645,14 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
       gameLogic.handle860Message(ws, snippets, text);
     }
     
-    // Log all messages in headless mode for debugging
-    if (HEADLESS_MODE) {
-      console.log(`[WS${wsNumber}] ${text.substring(0, 150)}${text.length > 150 ? '...' : ''}`);
+    // Handle FOUNDER (planet owner) - IMPORTANT: Don't attack the founder!
+    if (snippets[0] === "FOUNDER") {
+      const founderId = snippets[1];
+      gameLogic.founderUserId = founderId;
+      console.log(`[WS${wsNumber}] Planet founder detected: ${founderId}`);
+      addLog(wsNumber, `👑 Planet owner: ${founderId}`);
     }
+    
   });
 
   ws.on('close', (code, reason) => {
@@ -637,9 +759,9 @@ function connectAll() {
     connected++;
   }
   
-  // Connect WS5 (kick code - no alternation)
-  if (appState.config.kickrc) {
-    createWebSocketConnection(5, appState.config.kickrc);
+  // Connect WS5 (Code 5 - uses pool to get rc5 or rcl5)
+  if (appState.config.rc5 || appState.config.rcl5) {
+    createWebSocketConnection(5); // Code will be fetched from pool
     connected++;
   }
   
@@ -754,6 +876,11 @@ apiServer.get('/api/status', (req, res) => {
       hasMain: !!connectionPool.ws4?.mainCode, 
       hasAlt: !!connectionPool.ws4?.altCode, 
       usingMain: connectionPool.ws4?.useMain 
+    },
+    ws5: { 
+      hasMain: !!connectionPool.ws5?.mainCode, 
+      hasAlt: !!connectionPool.ws5?.altCode, 
+      usingMain: connectionPool.ws5?.useMain 
     }
   };
   
@@ -770,11 +897,12 @@ apiServer.get('/api/status', (req, res) => {
       rc2: appState.config.rc2 ? '***' : '',
       rc3: appState.config.rc3 ? '***' : '',
       rc4: appState.config.rc4 ? '***' : '',
-      kickrc: appState.config.kickrc ? '***' : '',
+      rc5: appState.config.rc5 ? '***' : '',
       rcl1: appState.config.rcl1 ? '***' : '',
       rcl2: appState.config.rcl2 ? '***' : '',
       rcl3: appState.config.rcl3 ? '***' : '',
-      rcl4: appState.config.rcl4 ? '***' : ''
+      rcl4: appState.config.rcl4 ? '***' : '',
+      rcl5: appState.config.rcl5 ? '***' : ''
     }
   });
 });
@@ -899,6 +1027,175 @@ apiServer.post('/api/send', (req, res) => {
   }
 });
 
+apiServer.post('/api/fly', (req, res) => {
+  try {
+    const { planet } = req.body;
+    
+    if (!planet) {
+      return res.status(400).json({
+        success: false,
+        error: 'planet is required'
+      });
+    }
+    
+    let sentCount = 0;
+    const results = [];
+    
+    // Send JOIN command to all connected WebSockets
+    for (let i = 1; i <= 5; i++) {
+      const wsKey = `ws${i}`;
+      const ws = appState.websockets[wsKey];
+      
+      if (ws && appState.wsStatus[wsKey]) {
+        try {
+          ws.send(`JOIN ${planet}\r\n`);
+          addLog(i, `✈️ Flying to ${planet}`);
+          sentCount++;
+          results.push({ ws: i, success: true, message: `Joined ${planet}` });
+        } catch (error) {
+          results.push({ ws: i, success: false, message: error.message });
+        }
+      }
+    }
+    
+    if (sentCount === 0) {
+      return res.json({
+        success: false,
+        message: 'No WebSockets connected',
+        results: []
+      });
+    }
+    
+    // Update config with new planet
+    appState.config.planet = planet;
+    
+    res.json({
+      success: true,
+      message: `Sent JOIN ${planet} to ${sentCount} connection(s)`,
+      sentCount,
+      results
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+apiServer.post('/api/release', (req, res) => {
+  try {
+    const results = [];
+    let successCount = 0;
+    let failCount = 0;
+    let notInPrisonCount = 0;
+    
+    // Try to escape from prison for all connected WebSockets
+    const escapePromises = [];
+    
+    for (let i = 1; i <= 5; i++) {
+      const wsKey = `ws${i}`;
+      const logicKey = `logic${i}`;
+      const gameLogic = appState.gameLogic[logicKey];
+      
+      if (appState.wsStatus[wsKey] && gameLogic) {
+        addLog(i, `🔓 Manual release triggered`);
+        
+        // MANUAL RELEASE: User clicked the button, so they know bot is in prison
+        // Don't check inPrison flag - just attempt escape
+        // Force set inPrison to true to bypass the check in escapeAll()
+        const wasInPrison = gameLogic.inPrison;
+        gameLogic.inPrison = true;
+        
+        const escapePromise = gameLogic.escapeAll()
+          .then(escaped => {
+            if (escaped) {
+              successCount++;
+              results.push({ 
+                ws: i, 
+                success: true, 
+                inPrison: true,
+                message: 'Escaped successfully' 
+              });
+              addLog(i, `✅ Manual release successful`);
+              
+              // Rejoin target planet after escape
+              const targetPlanet = appState.config.planet;
+              if (targetPlanet && appState.websockets[wsKey]) {
+                setTimeout(() => {
+                  const ws = appState.websockets[wsKey];
+                  if (ws && ws.readyState === ws.OPEN) {
+                    ws.send(`JOIN ${targetPlanet}\r\n`);
+                    addLog(i, `🔄 Rejoining ${targetPlanet}`);
+                  }
+                }, 3000);
+              }
+            } else {
+              failCount++;
+              results.push({ 
+                ws: i, 
+                success: false, 
+                inPrison: true,
+                message: 'Escape failed or no RCs configured' 
+              });
+              addLog(i, `❌ Manual release failed`);
+            }
+          })
+          .catch(error => {
+            failCount++;
+            results.push({ 
+              ws: i, 
+              success: false, 
+              inPrison: true,
+              message: error.message 
+            });
+            addLog(i, `❌ Release error: ${error.message}`);
+          });
+        
+        escapePromises.push(escapePromise);
+      }
+    }
+    
+    if (escapePromises.length === 0) {
+      return res.json({
+        success: false,
+        message: 'No WebSockets connected',
+        successCount: 0,
+        failCount: 0,
+        results: []
+      });
+    }
+    
+    // Wait for all escape attempts to complete
+    Promise.all(escapePromises).then(() => {
+      let message = '';
+      if (successCount > 0 && failCount === 0) {
+        message = `All ${successCount} account(s) released successfully`;
+      } else if (successCount === 0 && failCount > 0) {
+        message = `All ${failCount} escape attempt(s) failed`;
+      } else if (successCount > 0 && failCount > 0) {
+        message = `Release completed: ${successCount} succeeded, ${failCount} failed`;
+      } else {
+        message = `No escape attempts made`;
+      }
+      
+      res.json({
+        success: successCount > 0,
+        message: message,
+        successCount,
+        failCount,
+        results
+      });
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Start API server
 let httpServer;
 function startApiServer() {
@@ -912,6 +1209,8 @@ function startApiServer() {
     console.log(`  POST /api/connect     - Connect all WebSockets`);
     console.log(`  POST /api/disconnect  - Disconnect all WebSockets`);
     console.log(`  POST /api/send        - Send command to specific WebSocket`);
+    console.log(`  POST /api/fly         - Join/fly to a planet`);
+    console.log(`  POST /api/release     - Release all accounts from prison`);
     console.log(`\n`);
   });
 }

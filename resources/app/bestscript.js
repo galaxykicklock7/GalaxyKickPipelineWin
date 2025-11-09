@@ -3735,3 +3735,43 @@ async function escape5() {
     return null;
   }
 }
+
+
+// Release All button handler - Calls game-logic-final.js API
+const releasenowBtn = document.getElementById("releasenow");
+if (releasenowBtn) {
+  releasenowBtn.addEventListener('click', async function() {
+    console.log('Release All button clicked');
+    
+    // Show loading state
+    releasenowBtn.disabled = true;
+    const originalText = releasenowBtn.textContent;
+    releasenowBtn.textContent = 'Releasing...';
+    
+    try {
+      // Call the API endpoint
+      const response = await fetch('http://localhost:3000/api/release', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        console.log('Release result:', result);
+        alert(`Release completed!\n${result.successCount} succeeded, ${result.failCount} failed`);
+      } else {
+        alert('Release failed: ' + (result.error || result.message));
+      }
+    } catch (error) {
+      console.error('Release error:', error);
+      alert('Error: ' + error.message);
+    } finally {
+      // Restore button
+      releasenowBtn.disabled = false;
+      releasenowBtn.textContent = originalText;
+    }
+  });
+}
