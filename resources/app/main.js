@@ -771,41 +771,76 @@ function connectAll() {
 
 // Function to disconnect all
 function disconnectAll() {
+  console.log('🛑 AGGRESSIVE DISCONNECT - Stopping ALL processes');
+  
   // Set connected to false FIRST to prevent auto-reconnect
   appState.connected = false;
   
   Object.keys(appState.websockets).forEach(wsKey => {
+    const wsNumber = parseInt(wsKey.replace('ws', ''));
+    const logicKey = `logic${wsNumber}`;
+    
     if (appState.websockets[wsKey]) {
       const ws = appState.websockets[wsKey];
       
-      // Send QUIT command to server before closing (graceful disconnect)
+      // 1. Clear all timeouts in game logic
+      if (appState.gameLogic[logicKey]) {
+        try {
+          const gameLogic = appState.gameLogic[logicKey];
+          if (gameLogic.timeout) {
+            clearTimeout(gameLogic.timeout);
+            gameLogic.timeout = null;
+            console.log(`Cleared timeout for ${wsKey}`);
+          }
+          // Reset state
+          gameLogic.userFound = false;
+          gameLogic.useridtarget = null;
+          gameLogic.useridattack = null;
+        } catch (error) {
+          console.error(`Error clearing timeouts for ${wsKey}:`, error);
+        }
+      }
+      
+      // 2. Send QUIT command (try, but don't wait)
       try {
         if (ws.readyState === ws.OPEN) {
           ws.send("QUIT :ds\r\n");
           console.log(`Sent QUIT command to ${wsKey}`);
-          
-          // Add to logs
-          const wsNumber = parseInt(wsKey.replace('ws', ''));
-          addLog(wsNumber, 'Sent QUIT command to server');
+          addLog(wsNumber, '🛑 QUIT - Disconnecting');
         }
       } catch (error) {
         console.error(`Error sending QUIT to ${wsKey}:`, error);
       }
       
-      // Wait a moment for QUIT to be sent, then close
-      setTimeout(() => {
-        try {
+      // 3. IMMEDIATELY terminate WebSocket (don't wait)
+      try {
+        // Remove all event listeners to prevent reconnect
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        
+        // Terminate immediately (more aggressive than close)
+        if (typeof ws.terminate === 'function') {
+          ws.terminate();
+          console.log(`Terminated ${wsKey} (aggressive)`);
+        } else {
           ws.close();
           console.log(`Closed ${wsKey}`);
-        } catch (error) {
-          console.error(`Error closing ${wsKey}:`, error);
         }
-      }, 100);
+      } catch (error) {
+        console.error(`Error terminating ${wsKey}:`, error);
+      }
       
+      // 4. Clear references
       appState.websockets[wsKey] = null;
       appState.wsStatus[wsKey] = false;
+      
+      addLog(wsNumber, '✅ Disconnected completely');
     }
   });
+  
+  console.log('✅ All WebSockets disconnected aggressively');
 }
 
 // Express HTTP API Server
