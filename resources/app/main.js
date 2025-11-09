@@ -663,7 +663,8 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
     
     // Only retry if not a clean disconnect and config still has the code
     const recoveryCodeStillExists = appState.config[`rc${wsNumber}`] || appState.config[`rcl${wsNumber}`] || (wsNumber === 5 && appState.config.kickrc);
-    if (code !== 1000 && recoveryCodeStillExists && appState.connected) {
+    // Check BOTH appState.connected AND appState.config.connected
+    if (code !== 1000 && recoveryCodeStillExists && appState.connected && appState.config.connected) {
       // Not a clean close, attempt retry
       addLog(wsNumber, `🔄 Connection lost unexpectedly, will retry...`);
       
@@ -689,7 +690,8 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
     
     // Retry on connection errors
     const recoveryCodeStillExists = appState.config[`rc${wsNumber}`] || appState.config[`rcl${wsNumber}`] || (wsNumber === 5 && appState.config.kickrc);
-    if (recoveryCodeStillExists && appState.connected) {
+    // Check BOTH appState.connected AND appState.config.connected
+    if (recoveryCodeStillExists && appState.connected && appState.config.connected) {
       addLog(wsNumber, `🔄 Connection error, will retry...`);
       setTimeout(() => {
         // If rotation is enabled, rotate to next code before retrying
@@ -786,13 +788,16 @@ function disconnectAll() {
     if (appState.websockets[wsKey]) {
       const ws = appState.websockets[wsKey];
       
-      // 1. IMMEDIATELY remove event listeners to stop processing messages
-      const originalOnMessage = ws.onmessage;
-      ws.onmessage = null;
-      ws.onopen = null;
-      ws.onerror = null;
-      ws.onclose = null;
-      console.log(`Removed all event listeners for ${wsKey}`);
+      // 1. IMMEDIATELY remove ALL event listeners (Node.js ws library uses .on() not .onXXX)
+      try {
+        ws.removeAllListeners('message');
+        ws.removeAllListeners('open');
+        ws.removeAllListeners('close');
+        ws.removeAllListeners('error');
+        console.log(`Removed all event listeners for ${wsKey}`);
+      } catch (error) {
+        console.error(`Error removing listeners for ${wsKey}:`, error);
+      }
       
       // 2. Clear all timeouts in game logic
       if (appState.gameLogic[logicKey]) {
