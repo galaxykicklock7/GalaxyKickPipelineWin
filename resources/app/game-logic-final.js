@@ -2177,13 +2177,23 @@ class FinalCompleteGameLogic {
       
       // Schedule reconnection
       const reconnectTime = parseInt(this.config.reconnect || 5000);
-      setTimeout(() => {
+      const timeoutId = setTimeout(() => {
+        // Double-check if user disconnected before reconnecting
+        // This check happens INSIDE the timeout callback
+        if (!this.config.connected && typeof this.config.connected !== 'undefined') {
+          this.addLog(this.wsNumber, `⏰ User disconnected - skipping auto-reconnect`);
+          return;
+        }
+        
         this.addLog(this.wsNumber, `🔄 Auto-reconnecting after ${reconnectTime}ms`);
-        // reconnectCallback will check if user disconnected
+        // reconnectCallback will also check if user disconnected
         if (this.reconnect) {
           this.reconnect(this.wsNumber);
         }
       }, reconnectTime);
+      
+      // Store timeout ID so it can be cleared if needed
+      this.reconnectTimeoutId = timeoutId;
       
     } catch (error) {
       console.error(`[WS${this.wsNumber}] Error in OffSleep:`, error);

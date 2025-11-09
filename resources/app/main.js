@@ -783,15 +783,33 @@ function disconnectAll() {
     if (appState.websockets[wsKey]) {
       const ws = appState.websockets[wsKey];
       
-      // 1. Clear all timeouts in game logic
+      // 1. IMMEDIATELY remove event listeners to stop processing messages
+      const originalOnMessage = ws.onmessage;
+      ws.onmessage = null;
+      ws.onopen = null;
+      ws.onerror = null;
+      ws.onclose = null;
+      console.log(`Removed all event listeners for ${wsKey}`);
+      
+      // 2. Clear all timeouts in game logic
       if (appState.gameLogic[logicKey]) {
         try {
           const gameLogic = appState.gameLogic[logicKey];
+          
+          // Clear attack/kick timeout
           if (gameLogic.timeout) {
             clearTimeout(gameLogic.timeout);
             gameLogic.timeout = null;
-            console.log(`Cleared timeout for ${wsKey}`);
+            console.log(`Cleared attack timeout for ${wsKey}`);
           }
+          
+          // Clear reconnect timeout (from OffSleep)
+          if (gameLogic.reconnectTimeoutId) {
+            clearTimeout(gameLogic.reconnectTimeoutId);
+            gameLogic.reconnectTimeoutId = null;
+            console.log(`Cleared reconnect timeout for ${wsKey}`);
+          }
+          
           // Reset state
           gameLogic.userFound = false;
           gameLogic.useridtarget = null;
@@ -801,31 +819,24 @@ function disconnectAll() {
         }
       }
       
-      // 2. Send PART and QUIT commands to properly leave planet
+      // 3. Send PART and QUIT commands (no more messages will be processed)
       try {
         if (ws.readyState === ws.OPEN) {
-          // First send PART to leave the channel/planet
+          // Send PART to leave the channel/planet
           const currentPlanet = appState.config.planet;
           if (currentPlanet) {
             ws.send(`PART ${currentPlanet}\r\n`);
             console.log(`Sent PART command for ${currentPlanet} to ${wsKey}`);
           }
           
-          // Then send QUIT to disconnect
+          // Send QUIT to disconnect
           ws.send("QUIT :ds\r\n");
           console.log(`Sent QUIT command to ${wsKey}`);
           addLog(wsNumber, '🛑 QUIT - Disconnecting');
           
-          // Wait 200ms for server to process QUIT and remove from planet
+          // Wait 300ms for server to process, then terminate
           setTimeout(() => {
             try {
-              // 3. Remove all event listeners to prevent reconnect
-              ws.onopen = null;
-              ws.onmessage = null;
-              ws.onerror = null;
-              ws.onclose = null;
-              
-              // 4. Terminate aggressively
               if (typeof ws.terminate === 'function') {
                 ws.terminate();
                 console.log(`Terminated ${wsKey} (aggressive)`);
@@ -836,20 +847,16 @@ function disconnectAll() {
             } catch (error) {
               console.error(`Error terminating ${wsKey}:`, error);
             }
-          }, 200);
+          }, 300);
         } else {
-          // WebSocket not open, just terminate
+          // WebSocket not open, terminate immediately
           try {
-            ws.onopen = null;
-            ws.onmessage = null;
-            ws.onerror = null;
-            ws.onclose = null;
-            
             if (typeof ws.terminate === 'function') {
               ws.terminate();
             } else {
               ws.close();
             }
+            console.log(`Terminated ${wsKey} (not open)`);
           } catch (error) {
             console.error(`Error terminating ${wsKey}:`, error);
           }
@@ -858,7 +865,7 @@ function disconnectAll() {
         console.error(`Error sending QUIT to ${wsKey}:`, error);
       }
       
-      // 4. Clear references
+      // 4. Clear references immediately
       appState.websockets[wsKey] = null;
       appState.wsStatus[wsKey] = false;
       
