@@ -811,6 +811,13 @@ function disconnectAll() {
             console.log(`Cleared attack timeout for ${wsKey}`);
           }
           
+          // Clear inner timeouts (from kick/imprison forEach loops)
+          if (gameLogic.innerTimeouts && Array.isArray(gameLogic.innerTimeouts)) {
+            gameLogic.innerTimeouts.forEach(timeout => clearTimeout(timeout));
+            gameLogic.innerTimeouts = [];
+            console.log(`Cleared inner timeouts for ${wsKey}`);
+          }
+          
           // Clear reconnect timeout (from OffSleep)
           if (gameLogic.reconnectTimeoutId) {
             clearTimeout(gameLogic.reconnectTimeoutId);
@@ -1074,6 +1081,22 @@ apiServer.post('/api/disconnect', (req, res) => {
       success: true,
       message: 'Disconnected all WebSockets'
     });
+    
+    // In headless mode, exit the process after disconnect
+    // This allows GitHub Actions to detect the exit and run cleanup
+    if (HEADLESS_MODE) {
+      console.log('Headless mode - Exiting process after disconnect...');
+      setTimeout(() => {
+        if (httpServer) {
+          httpServer.close(() => {
+            console.log('HTTP server closed');
+            process.exit(0);
+          });
+        } else {
+          process.exit(0);
+        }
+      }, 1000); // Wait 1 second for response to be sent
+    }
   } catch (error) {
     res.status(500).json({
       success: false,

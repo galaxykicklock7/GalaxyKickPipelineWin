@@ -555,8 +555,11 @@ class FinalCompleteGameLogic {
         
         // Wait for timing before sending first action (STORE timeout so it can be cleared on disconnect)
         this.timeout = setTimeout(() => {
+          // Store inner timeouts so they can be cleared on disconnect
+          if (!this.innerTimeouts) this.innerTimeouts = [];
+          
           usersToAct.forEach((user, index) => {
-            setTimeout(() => {
+            const innerTimeout = setTimeout(() => {
               if (ws.readyState === ws.OPEN) {
                 if (isKickMode) {
                   ws.send(`KICK ${user.userid}\r\n`);
@@ -582,6 +585,9 @@ class FinalCompleteGameLogic {
                 }
               }
             }, index * 100); // Stagger actions by 100ms to avoid flooding
+            
+            // Store the inner timeout
+            this.innerTimeouts.push(innerTimeout);
           });
         }, timing);
       } else {
@@ -1339,6 +1345,9 @@ class FinalCompleteGameLogic {
               }
             }
           }
+          
+          // Clear the timeout reference after execution
+          this.timeout = null;
         }, timing);
       } else {
         this.addLog(this.wsNumber, `✅ No Action: ${username} (${userid}) - No conditions met`);
