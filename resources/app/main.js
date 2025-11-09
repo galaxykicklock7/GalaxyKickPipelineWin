@@ -801,35 +801,61 @@ function disconnectAll() {
         }
       }
       
-      // 2. Send QUIT command (try, but don't wait)
+      // 2. Send PART and QUIT commands to properly leave planet
       try {
         if (ws.readyState === ws.OPEN) {
+          // First send PART to leave the channel/planet
+          const currentPlanet = appState.config.planet;
+          if (currentPlanet) {
+            ws.send(`PART ${currentPlanet}\r\n`);
+            console.log(`Sent PART command for ${currentPlanet} to ${wsKey}`);
+          }
+          
+          // Then send QUIT to disconnect
           ws.send("QUIT :ds\r\n");
           console.log(`Sent QUIT command to ${wsKey}`);
           addLog(wsNumber, '🛑 QUIT - Disconnecting');
+          
+          // Wait 200ms for server to process QUIT and remove from planet
+          setTimeout(() => {
+            try {
+              // 3. Remove all event listeners to prevent reconnect
+              ws.onopen = null;
+              ws.onmessage = null;
+              ws.onerror = null;
+              ws.onclose = null;
+              
+              // 4. Terminate aggressively
+              if (typeof ws.terminate === 'function') {
+                ws.terminate();
+                console.log(`Terminated ${wsKey} (aggressive)`);
+              } else {
+                ws.close();
+                console.log(`Closed ${wsKey}`);
+              }
+            } catch (error) {
+              console.error(`Error terminating ${wsKey}:`, error);
+            }
+          }, 200);
+        } else {
+          // WebSocket not open, just terminate
+          try {
+            ws.onopen = null;
+            ws.onmessage = null;
+            ws.onerror = null;
+            ws.onclose = null;
+            
+            if (typeof ws.terminate === 'function') {
+              ws.terminate();
+            } else {
+              ws.close();
+            }
+          } catch (error) {
+            console.error(`Error terminating ${wsKey}:`, error);
+          }
         }
       } catch (error) {
         console.error(`Error sending QUIT to ${wsKey}:`, error);
-      }
-      
-      // 3. IMMEDIATELY terminate WebSocket (don't wait)
-      try {
-        // Remove all event listeners to prevent reconnect
-        ws.onopen = null;
-        ws.onmessage = null;
-        ws.onerror = null;
-        ws.onclose = null;
-        
-        // Terminate immediately (more aggressive than close)
-        if (typeof ws.terminate === 'function') {
-          ws.terminate();
-          console.log(`Terminated ${wsKey} (aggressive)`);
-        } else {
-          ws.close();
-          console.log(`Closed ${wsKey}`);
-        }
-      } catch (error) {
-        console.error(`Error terminating ${wsKey}:`, error);
       }
       
       // 4. Clear references
