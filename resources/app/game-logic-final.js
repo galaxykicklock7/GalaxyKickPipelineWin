@@ -553,8 +553,8 @@ class FinalCompleteGameLogic {
         this.addLog(this.wsNumber, `${isKickMode ? '👢' : '⚔️'} Found ${usersToAct.length} user(s) to ${actionType.toLowerCase()}`);
         this.addLog(this.wsNumber, `⚡ ${timingLabel} in ${timing}ms`);
         
-        // Wait for timing before sending first action
-        setTimeout(() => {
+        // Wait for timing before sending first action (STORE timeout so it can be cleared on disconnect)
+        this.timeout = setTimeout(() => {
           usersToAct.forEach((user, index) => {
             setTimeout(() => {
               if (ws.readyState === ws.OPEN) {
@@ -1315,8 +1315,8 @@ class FinalCompleteGameLogic {
         
         this.addLog(this.wsNumber, `⚡ ${timingLabel} ${username} in ${timing}ms`);
         
-        // Wait for timing before sending action
-        setTimeout(() => {
+        // Wait for timing before sending action (STORE timeout so it can be cleared on disconnect)
+        this.timeout = setTimeout(() => {
           if (ws.readyState === ws.OPEN) {
             if (isKickMode) {
               this.addLog(this.wsNumber, `👢 Kicking ${username} (${userid}) - Reason: ${reason}`);
