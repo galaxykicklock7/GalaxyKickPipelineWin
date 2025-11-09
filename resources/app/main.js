@@ -39,6 +39,7 @@ let appState = {
     logic5: null
   },
   config: {
+    connected: false, // Track if user wants to stay connected (for OffSleep check)
     rc1: "",
     rc2: "",
     rc3: "",
@@ -766,6 +767,7 @@ function connectAll() {
   }
   
   appState.connected = connected > 0;
+  appState.config.connected = connected > 0; // Also set in config so game logic can see it
   return connected;
 }
 
@@ -775,6 +777,7 @@ function disconnectAll() {
   
   // Set connected to false FIRST to prevent auto-reconnect
   appState.connected = false;
+  appState.config.connected = false; // Also set in config so game logic can see it
   
   Object.keys(appState.websockets).forEach(wsKey => {
     const wsNumber = parseInt(wsKey.replace('ws', ''));
