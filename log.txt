@@ -1,0 +1,62 @@
+Run duration="60"
+==========================================
+🚀 Backend is Running!
+==========================================
+Tunnel URL: https://best-backend.loca.lt
+Duration: 60 minutes
+Started: 2025-11-09 19:21:56
+Will stop: 2025-11-09 20:21:56
+💡 TIP: Backend is ready but not connected yet.
+   Use /api/configure and /api/connect to start!
+Monitoring status every 60 seconds...
+[19:21:56] Check #1 | ⭕ Ready (waiting for connection) | Time left: 60 min
+[19:22:56] Check #2 | ⭕ Ready (waiting for connection) | Time left: 59 min
+[19:23:56] Check #3 | ⭕ Ready (waiting for connection) | Time left: 58 min
+[19:24:56] Check #4 | ⭕ Ready (waiting for connection) | Time left: 57 min
+Error: The operation was canceled.
+0s
+Run echo "Cleaning up..."
+Cleaning up...
+✅ WebSockets disconnected
+Final server logs:
+[WS1] ===== COMPLETE MESSAGE #38 =====
+EVENT 1 0
+========================================
+[WS1] MSG#39 :del: ADDON_TAG 200
+[WS1] ===== COMPLETE MESSAGE #39 =====
+:del ADDON_TAG 200
+========================================
+[WS1] MSG#40 :del: ADDON_TAG 232
+[WS1] ===== COMPLETE MESSAGE #40 =====
+:del ADDON_TAG 232
+========================================
+🛑 AGGRESSIVE DISCONNECT - Stopping ALL processes
+Removed all event listeners for ws1
+Sent PART command for THE_BOT to ws1
+Sent QUIT command to ws1
+[LOG1] 🛑 QUIT - Disconnecting
+[LOG1] ✅ Disconnected completely
+✅ All WebSockets disconnected aggressively
+Terminated ws1 (aggressive)
+[WS1] MSG#5 PING
+: 
+[WS1] PING received, sent PONG
+[WS1] MSG#5 PING
+: 
+[WS1] PING received, sent PONG
+[WS1] MSG#6 PING
+: 
+[WS1] PING received, sent PONG
+[WS1] MSG#5 PING
+: 
+[WS1] PING received, sent PONG
+[WS1] MSG#6 PING
+: 
+[WS1] PING received, sent PONG
+[WS1] MSG#5 PING
+: 
+[WS1] PING received, sent PONG
+🛑 AGGRESSIVE DISCONNECT - Stopping ALL processes
+✅ All WebSockets disconnected aggressively
+✅ Cleanup complete
+Thank you for using BEST Backend! 🎉

@@ -845,12 +845,19 @@ function disconnectAll() {
           // Wait 300ms for server to process, then terminate
           setTimeout(() => {
             try {
+              // Force terminate the connection
               if (typeof ws.terminate === 'function') {
                 ws.terminate();
                 console.log(`Terminated ${wsKey} (aggressive)`);
               } else {
                 ws.close();
                 console.log(`Closed ${wsKey}`);
+              }
+              
+              // Destroy the socket completely (Node.js ws library)
+              if (ws._socket) {
+                ws._socket.destroy();
+                console.log(`Destroyed socket for ${wsKey}`);
               }
             } catch (error) {
               console.error(`Error terminating ${wsKey}:`, error);
@@ -864,6 +871,11 @@ function disconnectAll() {
             } else {
               ws.close();
             }
+            
+            // Destroy the socket completely
+            if (ws._socket) {
+              ws._socket.destroy();
+            }
             console.log(`Terminated ${wsKey} (not open)`);
           } catch (error) {
             console.error(`Error terminating ${wsKey}:`, error);
@@ -873,9 +885,11 @@ function disconnectAll() {
         console.error(`Error sending QUIT to ${wsKey}:`, error);
       }
       
-      // 4. Clear references immediately
-      appState.websockets[wsKey] = null;
-      appState.wsStatus[wsKey] = false;
+      // 4. Clear references AFTER scheduling terminate (so setTimeout can access ws)
+      setTimeout(() => {
+        appState.websockets[wsKey] = null;
+        appState.wsStatus[wsKey] = false;
+      }, 400); // Clear after terminate completes
       
       addLog(wsNumber, '✅ Disconnected completely');
     }

@@ -380,6 +380,8 @@ jobs:
           end_time=$((SECONDS + duration * 60))
           check_count=0
           
+          was_connected=false
+          
           while [ $SECONDS -lt $end_time ]; do
             check_count=$((check_count + 1))
             
@@ -389,8 +391,19 @@ jobs:
               
               if [ "$connected" = "true" ]; then
                 status_icon="✅ Connected"
+                was_connected=true
               else
                 status_icon="⭕ Ready (waiting for connection)"
+                
+                # If was connected before and now disconnected, user clicked EXIT
+                if [ "$was_connected" = "true" ]; then
+                  echo ""
+                  echo "=========================================="
+                  echo "🛑 Disconnect detected - User clicked EXIT"
+                  echo "=========================================="
+                  echo "Exiting gracefully..."
+                  break
+                fi
               fi
               
               echo "[$(date '+%H:%M:%S')] Check #$check_count | $status_icon | Time left: $remaining min"
