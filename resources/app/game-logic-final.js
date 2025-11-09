@@ -568,14 +568,16 @@ class FinalCompleteGameLogic {
                   console.log(`[WS${this.wsNumber}] 353 Imprison mode - Sent ACTION 3 command for ${user.userid}`);
                 }
                 
-                // QUIT immediately after last action (matches bestscript.js)
+                // QUIT immediately after last action if exit or sleep mode enabled
                 if (index === usersToAct.length - 1) {
-                  ws.send("QUIT :ds\r\n");
-                  this.addLog(this.wsNumber, `🚪 QUIT`);
-                  
-                  // Trigger auto-reconnect if sleeping mode is enabled
-                  if (this.config.sleeping) {
-                    this.OffSleep(ws);
+                  if (this.config.exitting || this.config.sleeping) {
+                    ws.send("QUIT :ds\r\n");
+                    this.addLog(this.wsNumber, `🚪 QUIT after ${actionType.toLowerCase()}`);
+                    
+                    // Trigger auto-reconnect if sleeping mode is enabled
+                    if (this.config.sleeping) {
+                      this.OffSleep(ws);
+                    }
                   }
                 }
               }
@@ -1326,13 +1328,15 @@ class FinalCompleteGameLogic {
               ws.send(`ACTION 3 ${userid}\r\n`);
             }
             
-            // QUIT immediately after action (matches bestscript.js)
-            ws.send("QUIT :ds\r\n");
-            this.addLog(this.wsNumber, `🚪 QUIT`);
-            
-            // Trigger auto-reconnect if sleeping mode is enabled
-            if (this.config.sleeping) {
-              this.OffSleep(ws);
+            // QUIT immediately after action if exit or sleep mode enabled
+            if (this.config.exitting || this.config.sleeping) {
+              ws.send("QUIT :ds\r\n");
+              this.addLog(this.wsNumber, `🚪 QUIT after ${actionType.toLowerCase()}`);
+              
+              // Trigger auto-reconnect if sleeping mode is enabled
+              if (this.config.sleeping) {
+                this.OffSleep(ws);
+              }
             }
           }
         }, timing);
