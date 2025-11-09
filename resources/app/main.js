@@ -820,9 +820,12 @@ function disconnectAll() {
           
           // Clear reconnect timeout (from OffSleep)
           if (gameLogic.reconnectTimeoutId) {
+            console.log(`[${wsKey}] Clearing reconnect timeout: ${gameLogic.reconnectTimeoutId}`);
             clearTimeout(gameLogic.reconnectTimeoutId);
             gameLogic.reconnectTimeoutId = null;
-            console.log(`Cleared reconnect timeout for ${wsKey}`);
+            console.log(`[${wsKey}] ✅ Cleared reconnect timeout`);
+          } else {
+            console.log(`[${wsKey}] ⚠️ No reconnect timeout to clear (reconnectTimeoutId is ${gameLogic.reconnectTimeoutId})`);
           }
           
           // Reset state

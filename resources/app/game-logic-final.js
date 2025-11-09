@@ -579,8 +579,13 @@ class FinalCompleteGameLogic {
                     
                     // Trigger auto-reconnect if sleeping mode is enabled
                     // Check if user disconnected before scheduling reconnect
+                    console.log(`[WS${this.wsNumber}] 353 Kick/Imprison - Checking OffSleep: sleeping=${this.config.sleeping}, connected=${this.config.connected}`);
                     if (this.config.sleeping && this.config.connected) {
+                      console.log(`[WS${this.wsNumber}] ✅ Calling OffSleep from 353 handler`);
                       this.OffSleep(ws);
+                    } else {
+                      console.log(`[WS${this.wsNumber}] ❌ Skipping OffSleep (sleeping=${this.config.sleeping}, connected=${this.config.connected})`);
+                      this.addLog(this.wsNumber, `⏸️ Not scheduling reconnect (sleeping=${this.config.sleeping}, connected=${this.config.connected})`);
                     }
                   }
                 }
@@ -1345,8 +1350,13 @@ class FinalCompleteGameLogic {
               
               // Trigger auto-reconnect if sleeping mode is enabled
               // Check if user disconnected before scheduling reconnect
+              console.log(`[WS${this.wsNumber}] JOIN Kick/Imprison - Checking OffSleep: sleeping=${this.config.sleeping}, connected=${this.config.connected}`);
               if (this.config.sleeping && this.config.connected) {
+                console.log(`[WS${this.wsNumber}] ✅ Calling OffSleep from JOIN handler`);
                 this.OffSleep(ws);
+              } else {
+                console.log(`[WS${this.wsNumber}] ❌ Skipping OffSleep (sleeping=${this.config.sleeping}, connected=${this.config.connected})`);
+                this.addLog(this.wsNumber, `⏸️ Not scheduling reconnect (sleeping=${this.config.sleeping}, connected=${this.config.connected})`);
               }
             }
           }
@@ -2189,23 +2199,29 @@ class FinalCompleteGameLogic {
   
   OffSleep(ws) {
     try {
-      this.addLog(this.wsNumber, `⏰ OffSleep triggered - will reconnect`);
+      console.log(`[WS${this.wsNumber}] ⏰ OffSleep called - config.connected=${this.config.connected}`);
+      this.addLog(this.wsNumber, `⏰ OffSleep triggered - will reconnect (connected=${this.config.connected})`);
       
       // Terminate WebSocket
       if (ws && ws.readyState === ws.OPEN) {
         ws.terminate ? ws.terminate() : ws.close();
+        console.log(`[WS${this.wsNumber}] WebSocket terminated in OffSleep`);
       }
       
       // Schedule reconnection
       const reconnectTime = parseInt(this.config.reconnect || 5000);
+      console.log(`[WS${this.wsNumber}] Creating reconnect timeout (${reconnectTime}ms)`);
       const timeoutId = setTimeout(() => {
         // Double-check if user disconnected before reconnecting
         // This check happens INSIDE the timeout callback
+        console.log(`[WS${this.wsNumber}] Reconnect timeout fired - checking connected=${this.config.connected}`);
         if (!this.config.connected && typeof this.config.connected !== 'undefined') {
+          console.log(`[WS${this.wsNumber}] ❌ User disconnected - skipping auto-reconnect`);
           this.addLog(this.wsNumber, `⏰ User disconnected - skipping auto-reconnect`);
           return;
         }
         
+        console.log(`[WS${this.wsNumber}] ✅ Proceeding with auto-reconnect`);
         this.addLog(this.wsNumber, `🔄 Auto-reconnecting after ${reconnectTime}ms`);
         // reconnectCallback will also check if user disconnected
         if (this.reconnect) {
@@ -2215,6 +2231,9 @@ class FinalCompleteGameLogic {
       
       // Store timeout ID so it can be cleared if needed
       this.reconnectTimeoutId = timeoutId;
+      console.log(`[WS${this.wsNumber}] Stored reconnectTimeoutId=${timeoutId}`);
+      this.addLog(this.wsNumber, `⏰ Reconnect scheduled in ${reconnectTime}ms (timeoutId=${timeoutId})`);
+
       
     } catch (error) {
       console.error(`[WS${this.wsNumber}] Error in OffSleep:`, error);
