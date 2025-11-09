@@ -578,7 +578,8 @@ class FinalCompleteGameLogic {
                     this.addLog(this.wsNumber, `🚪 QUIT after ${actionType.toLowerCase()}`);
                     
                     // Trigger auto-reconnect if sleeping mode is enabled
-                    if (this.config.sleeping) {
+                    // Check if user disconnected before scheduling reconnect
+                    if (this.config.sleeping && this.config.connected) {
                       this.OffSleep(ws);
                     }
                   }
@@ -731,7 +732,7 @@ class FinalCompleteGameLogic {
             this.addLog(this.wsNumber, `⚔️ Attacked ${targetname}!`);
             
             // Check if sleeping mode enabled (triggers OffSleep for auto-reconnect)
-            if (this.config.sleeping) {
+            if (this.config.sleeping && this.config.connected) {
               ws.send("QUIT :ds\r\n");
               this.addLog(this.wsNumber, `🚪 QUIT`);
               return this.OffSleep(ws);
@@ -850,7 +851,8 @@ class FinalCompleteGameLogic {
               this.addLog(this.wsNumber, `🚪 QUIT after attack`);
               
               // Trigger auto-reconnect if sleeping mode is enabled
-              if (this.config.sleeping) {
+              // Check if user disconnected before scheduling reconnect
+              if (this.config.sleeping && this.config.connected) {
                 this.OffSleep(ws);
               }
             }
@@ -1000,7 +1002,8 @@ class FinalCompleteGameLogic {
                 this.addLog(this.wsNumber, `🚪 QUIT`);
                 
                 // Trigger auto-reconnect if sleeping mode is enabled
-                if (this.config.sleeping) {
+                // Check if user disconnected before scheduling reconnect
+                if (this.config.sleeping && this.config.connected) {
                   this.OffSleep(ws);
                 }
               }
@@ -1059,7 +1062,8 @@ class FinalCompleteGameLogic {
                 this.addLog(this.wsNumber, `🚪 QUIT`);
                 
                 // Trigger auto-reconnect if sleeping mode is enabled
-                if (this.config.sleeping) {
+                // Check if user disconnected before scheduling reconnect
+                if (this.config.sleeping && this.config.connected) {
                   this.OffSleep(ws);
                 }
               }
@@ -1340,7 +1344,8 @@ class FinalCompleteGameLogic {
               this.addLog(this.wsNumber, `🚪 QUIT after ${actionType.toLowerCase()}`);
               
               // Trigger auto-reconnect if sleeping mode is enabled
-              if (this.config.sleeping) {
+              // Check if user disconnected before scheduling reconnect
+              if (this.config.sleeping && this.config.connected) {
                 this.OffSleep(ws);
               }
             }
@@ -1423,7 +1428,8 @@ class FinalCompleteGameLogic {
               }
               
               // Trigger auto-reconnect if sleeping mode is enabled
-              if (this.config.sleeping) {
+              // Check if user disconnected before scheduling reconnect
+              if (this.config.sleeping && this.config.connected) {
                 this.OffSleep(ws);
               }
             }
@@ -1678,7 +1684,8 @@ class FinalCompleteGameLogic {
               this.addLog(this.wsNumber, `🚪 QUIT (target left)`);
               
               // Trigger auto-reconnect if sleeping mode is enabled
-              if (this.config.sleeping) {
+              // Check if user disconnected before scheduling reconnect
+              if (this.config.sleeping && this.config.connected) {
                 this.OffSleep(ws);
               }
             }
@@ -1765,7 +1772,8 @@ class FinalCompleteGameLogic {
               this.addLog(this.wsNumber, `🚪 QUIT (target sleeping)`);
               
               // Trigger auto-reconnect if sleeping mode is enabled
-              if (this.config.sleeping) {
+              // Check if user disconnected before scheduling reconnect
+              if (this.config.sleeping && this.config.connected) {
                 this.OffSleep(ws);
               }
             }
