@@ -2060,11 +2060,6 @@ class FinalCompleteGameLogic {
         this.consecutiveSuccesses = 0;  // Reset success counter
         this.addLog(this.wsNumber, `⏰ 3-second error (attempt #${this.consecutiveErrors})`);
         
-      } else if (this.aiMode.enabled && this.aiMode.pendingResult && this.aiMode.lastAttackTiming) {
-        // AI Mode: If we got 850 message and no 3s error, it's a success
-        this.recordAIResult(this.aiMode.lastAttackTiming, true);
-        this.aiMode.pendingResult = false;
-      }
         // QUICK FIX #2: Only adjust relevant timing based on status
         if (this.config.timershift) {
           if (this.status === "attack") {
@@ -2079,6 +2074,10 @@ class FinalCompleteGameLogic {
             this.addLog(this.wsNumber, `📊 Status unknown - adjusting attack timing`);
           }
         }
+      } else if (this.aiMode.enabled && this.aiMode.pendingResult && this.aiMode.lastAttackTiming) {
+        // AI Mode: If we got 850 message and no 3s error, it's a success
+        this.recordAIResult(this.aiMode.lastAttackTiming, true);
+        this.aiMode.pendingResult = false;
       }
       
       // Check for success event (TIMER SHIFT DECREMENT!)
