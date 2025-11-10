@@ -2206,12 +2206,13 @@ class FinalCompleteGameLogic {
       console.log(`[WS${this.wsNumber}] ⏰ OffSleep called - config.connected=${this.config.connected}`);
       this.addLog(this.wsNumber, `⏰ OffSleep START (connected=${this.config.connected})`);
       
-      // Terminate WebSocket
-      if (ws && ws.readyState === ws.OPEN) {
-        ws.terminate ? ws.terminate() : ws.close();
-        console.log(`[WS${this.wsNumber}] WebSocket terminated in OffSleep`);
-        this.addLog(this.wsNumber, `🔌 WebSocket terminated`);
-      }
+      // DON'T terminate WebSocket here - QUIT command already sent!
+      // The server will close the connection cleanly (code 1000)
+      // Calling ws.terminate() here causes abnormal close (code 1006)
+      // which triggers the auto-retry logic in ws.on('close') handler
+      // This creates a race condition with our scheduled reconnection
+      console.log(`[WS${this.wsNumber}] Waiting for clean close from QUIT command`);
+      this.addLog(this.wsNumber, `⏳ Waiting for server to close connection`);
       
       // Schedule reconnection
       const reconnectTime = parseInt(this.config.reconnect || 5000);
