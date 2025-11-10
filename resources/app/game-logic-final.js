@@ -63,6 +63,12 @@ class FinalCompleteGameLogic {
     this.consecutiveSuccesses = 0; // Track consecutive successes
     this.recentAdjustments = []; // Track last 5 adjustments to detect oscillation
     this.maxAdjustmentHistory = 5; // Keep last 5 adjustments
+    
+    // Smart Mode improvements (NEW)
+    this.attackCooldowns = {}; // Track cooldowns: { userid: timestamp }
+    this.attackedThisSession = new Set(); // Track who was attacked this session
+    this.targetIndex = 0; // For round robin mode
+    this.cooldownDuration = 3500; // 3.5 seconds cooldown after attack
   }
 
   // Parse haaapsi
@@ -195,6 +201,85 @@ class FinalCompleteGameLogic {
     } else {
       return mode === "defense" ? "Defense" : "Attack";
     }
+  }
+  
+  // ========================================
+  // SMART MODE IMPROVEMENTS
+  // ========================================
+  
+  // Mark target as attacked with cooldown
+  markTargetAttacked(userid) {
+    this.attackCooldowns[userid] = Date.now();
+    this.attackedThisSession.add(userid);
+  }
+  
+  // Check if target is on cooldown
+  isOnCooldown(userid) {
+    const lastAttack = this.attackCooldowns[userid];
+    if (!lastAttack) return false;
+    
+    const timeSinceAttack = Date.now() - lastAttack;
+    return timeSinceAttack < this.cooldownDuration;
+  }
+  
+  // Get available targets (not on cooldown)
+  getAvailableTargets() {
+    return this.attackids.filter(id => !this.isOnCooldown(id));
+  }
+  
+  // Get unattacked targets (not attacked this session)
+  getUnattackedTargets() {
+    return this.attackids.filter(id => !this.attackedThisSession.has(id));
+  }
+  
+  // IMPROVED: Smart target selection with all 3 improvements
+  selectSmartTarget() {
+    if (!this.config.smart || this.attackids.length === 0) {
+      return null;
+    }
+    
+    // IMPROVEMENT #1: Filter out targets on cooldown
+    let candidateTargets = this.getAvailableTargets();
+    
+    if (candidateTargets.length === 0) {
+      // All targets on cooldown, use any target as fallback
+      candidateTargets = this.attackids;
+      this.addLog(this.wsNumber, `⏳ All targets on cooldown - picking anyway`);
+    }
+    
+    // IMPROVEMENT #3: Prefer targets not attacked this session
+    const unattackedCandidates = candidateTargets.filter(id => 
+      !this.attackedThisSession.has(id)
+    );
+    
+    if (unattackedCandidates.length > 0) {
+      candidateTargets = unattackedCandidates;
+      this.addLog(this.wsNumber, `🆕 ${unattackedCandidates.length} fresh target(s) available`);
+    } else {
+      // All candidates attacked, reset history for new round
+      this.attackedThisSession.clear();
+      this.addLog(this.wsNumber, `🔄 All targets attacked - starting new round`);
+    }
+    
+    // IMPROVEMENT #2: Round Robin or Random selection
+    let selectedId;
+    if (this.config.roundRobin) {
+      // Round Robin: Pick sequentially
+      this.targetIndex = this.targetIndex % candidateTargets.length;
+      selectedId = candidateTargets[this.targetIndex];
+      this.targetIndex++;
+      this.addLog(this.wsNumber, `🔄 Round Robin: Target #${this.targetIndex}`);
+    } else {
+      // Random: Pick randomly (original behavior)
+      const rand = Math.floor(Math.random() * candidateTargets.length);
+      selectedId = candidateTargets[rand];
+    }
+    
+    // Get target name for logging
+    const targetIndex = this.attackids.indexOf(selectedId);
+    const targetName = this.attacknames[targetIndex];
+    
+    return { id: selectedId, name: targetName };
   }
   
   incrementAttack() {
@@ -712,6 +797,7 @@ class FinalCompleteGameLogic {
                   console.log(`[WS${this.wsNumber}] 353 Kick mode - Sent KICK command for ${user.userid}`);
                 } else {
                   ws.send(`ACTION 3 ${user.userid}\r\n`);
+                  this.markTargetAttacked(user.userid);  // Mark for cooldown & history
                   this.addLog(this.wsNumber, `⚔️ Imprisoning ${user.username} (${user.userid}) - ${user.reason}`);
                   console.log(`[WS${this.wsNumber}] 353 Imprison mode - Sent ACTION 3 command for ${user.userid}`);
                 }
@@ -879,6 +965,7 @@ class FinalCompleteGameLogic {
           
           if (ws.readyState === ws.OPEN) {
             ws.send(`ACTION 3 ${this.useridattack}\r\n`);
+            this.markTargetAttacked(this.useridattack);  // Mark for cooldown & history
             this.addLog(this.wsNumber, `⚔️ Attacked ${targetname}!`);
             
             // Check if sleeping mode enabled (triggers OffSleep for auto-reconnect)
@@ -992,6 +1079,7 @@ class FinalCompleteGameLogic {
           
           if (ws.readyState === ws.OPEN) {
             ws.send(`ACTION 3 ${this.useridattack}\r\n`);
+            this.markTargetAttacked(this.useridattack);  // Mark for cooldown & history
             this.addLog(this.wsNumber, `⚔️ [LOW SEC] Attacked ${username}!`);
             
             if (this.config.autorelease || this.config.exitting) {
@@ -1140,6 +1228,7 @@ class FinalCompleteGameLogic {
           
           if (ws.readyState === ws.OPEN) {
             ws.send(`ACTION 3 ${this.useridattack}\r\n`);
+            this.markTargetAttacked(this.useridattack);  // Mark for cooldown & history
             this.addLog(this.wsNumber, `⚔️ Attacked ${matchedUser}!`);
             
             setTimeout(() => {
@@ -1200,6 +1289,7 @@ class FinalCompleteGameLogic {
             this.timeout = setTimeout(() => {
               if (ws.readyState === ws.OPEN) {
                 ws.send(`ACTION 3 ${userid}\r\n`);
+                this.markTargetAttacked(userid);  // Mark for cooldown & history
                 this.addLog(this.wsNumber, `⚔️ Defense attacked ${username}!`);
                 
                 ws.send("QUIT :ds\r\n");
@@ -1478,6 +1568,7 @@ class FinalCompleteGameLogic {
             } else {
               this.addLog(this.wsNumber, `⚔️ Imprisoning ${username} (${userid}) - Reason: ${reason}`);
               ws.send(`ACTION 3 ${userid}\r\n`);
+              this.markTargetAttacked(userid);  // Mark for cooldown & history
             }
             
             // QUIT immediately after action if exit or sleep mode enabled
@@ -1566,6 +1657,7 @@ class FinalCompleteGameLogic {
           this.timeout = setTimeout(() => {
             if (ws.readyState === ws.OPEN) {
               ws.send(`ACTION 3 ${this.useridattack}\r\n`);
+              this.markTargetAttacked(this.useridattack);  // Mark for cooldown & history
               this.addLog(this.wsNumber, `⚔️ [LOW SEC] Attacked ${matchedUser}!`);
               
               // Only send QUIT if auto-release is disabled, or if sleep mode is enabled
@@ -1877,12 +1969,13 @@ class FinalCompleteGameLogic {
         this.attacknames.splice(attackIndex, 1);
       }
 
-      // SMART MODE: Switch to new target if current target left
+      // IMPROVED SMART MODE: Switch to new target if current target left
       if (this.config.smart && userid === this.useridattack && this.attackids.length > 0) {
-        const rand = Math.floor(Math.random() * this.attackids.length);
-        this.useridattack = this.attackids[rand];
-        const targetname = this.attacknames[rand];
-        this.addLog(this.wsNumber, `🎯 New Target: ${targetname}`);
+        const newTarget = this.selectSmartTarget();
+        if (newTarget) {
+          this.useridattack = newTarget.id;
+          this.addLog(this.wsNumber, `🎯 Smart Switch: ${newTarget.name}`);
+        }
       }
       
       // SMART MODE: Clear timeout if no targets left
@@ -1966,12 +2059,13 @@ class FinalCompleteGameLogic {
         this.attacknames.splice(attackIndex, 1);
       }
 
-      // SMART MODE: Switch to new target if current target is sleeping
+      // IMPROVED SMART MODE: Switch to new target if current target is sleeping
       if (this.config.smart && userid === this.useridattack && this.attackids.length > 0) {
-        const rand = Math.floor(Math.random() * this.attackids.length);
-        this.useridattack = this.attackids[rand];
-        const targetname = this.attacknames[rand];
-        this.addLog(this.wsNumber, `🎯 New Target: ${targetname}`);
+        const newTarget = this.selectSmartTarget();
+        if (newTarget) {
+          this.useridattack = newTarget.id;
+          this.addLog(this.wsNumber, `🎯 Smart Switch: ${newTarget.name}`);
+        }
       }
       
       // SMART MODE: Clear timeout if no targets left

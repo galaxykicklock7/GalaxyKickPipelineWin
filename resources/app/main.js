@@ -87,7 +87,9 @@ let appState = {
     kickall: false,
     reconnect: 5000,
     // Code rotation
-    rotateRC: false
+    rotateRC: false,
+    // Smart Mode options (NEW)
+    roundRobin: false  // Enable round robin target selection in smart mode
   },
   logs: {
     log1: [],
