@@ -50,6 +50,13 @@ class FinalCompleteGameLogic {
     
     // Debug flag
     this._kickConfigLogged = false;
+    
+    // Reconnection management (NEW)
+    this.reconnectTimeoutId = null; // Track OffSleep reconnect timeout
+    this.isOffSleepActive = false; // Flag to prevent race condition with ws.on('close')
+    this.offSleepRetryCount = 0; // Track OffSleep reconnection attempts
+    this.maxOffSleepRetries = 10; // Maximum OffSleep reconnection attempts
+    this.innerTimeouts = []; // Track all inner timeouts (from forEach loops)
   }
 
   // Parse haaapsi
@@ -88,10 +95,26 @@ class FinalCompleteGameLogic {
     this.lowtime = 0;
     this._kickConfigLogged = false; // Reset debug flag
     
+    // Clear all timeouts
     if (this.timeout) {
       clearTimeout(this.timeout);
       this.timeout = null;
     }
+    
+    // Clear reconnect timeout
+    if (this.reconnectTimeoutId) {
+      clearTimeout(this.reconnectTimeoutId);
+      this.reconnectTimeoutId = null;
+    }
+    
+    // Clear all inner timeouts
+    if (this.innerTimeouts && this.innerTimeouts.length > 0) {
+      this.innerTimeouts.forEach(timeout => clearTimeout(timeout));
+      this.innerTimeouts = [];
+    }
+    
+    // Reset reconnection flags
+    this.isOffSleepActive = false;
   }
 
   // ========================================
@@ -2203,8 +2226,20 @@ class FinalCompleteGameLogic {
   
   OffSleep(ws) {
     try {
-      console.log(`[WS${this.wsNumber}] ⏰ OffSleep called - config.connected=${this.config.connected}`);
-      this.addLog(this.wsNumber, `⏰ OffSleep START (connected=${this.config.connected})`);
+      console.log(`[WS${this.wsNumber}] ⏰ OffSleep called - config.connected=${this.config.connected}, retryCount=${this.offSleepRetryCount}`);
+      this.addLog(this.wsNumber, `⏰ OffSleep START (connected=${this.config.connected}, retry=${this.offSleepRetryCount})`);
+      
+      // Check maximum retry limit
+      if (this.offSleepRetryCount >= this.maxOffSleepRetries) {
+        console.log(`[WS${this.wsNumber}] ❌ Max OffSleep retries (${this.maxOffSleepRetries}) reached - stopping reconnection`);
+        this.addLog(this.wsNumber, `❌ Max retries (${this.maxOffSleepRetries}) reached - stopping`);
+        this.isOffSleepActive = false;
+        this.offSleepRetryCount = 0;
+        return;
+      }
+      
+      // Set flag to prevent race condition with ws.on('close') handler
+      this.isOffSleepActive = true;
       
       // DON'T terminate WebSocket here - QUIT command already sent!
       // The server will close the connection cleanly (code 1000)
@@ -2214,23 +2249,44 @@ class FinalCompleteGameLogic {
       console.log(`[WS${this.wsNumber}] Waiting for clean close from QUIT command`);
       this.addLog(this.wsNumber, `⏳ Waiting for server to close connection`);
       
-      // Schedule reconnection
-      const reconnectTime = parseInt(this.config.reconnect || 5000);
-      console.log(`[WS${this.wsNumber}] Creating reconnect timeout (${reconnectTime}ms)`);
-      this.addLog(this.wsNumber, `⏱️ Creating reconnect timeout (${reconnectTime}ms)`);
+      // Schedule reconnection with exponential backoff + jitter
+      const baseReconnectTime = parseInt(this.config.reconnect || 5000);
+      const backoffMultiplier = Math.pow(1.5, this.offSleepRetryCount); // 1.5x per retry
+      const maxBackoff = 60000; // Max 60 seconds
+      const backoffTime = Math.min(baseReconnectTime * backoffMultiplier, maxBackoff);
+      
+      // Add jitter (±20%) to prevent thundering herd
+      const jitterRange = backoffTime * 0.2;
+      const jitter = (Math.random() * jitterRange * 2) - jitterRange;
+      const reconnectTime = Math.max(1000, Math.floor(backoffTime + jitter)); // Min 1 second
+      
+      console.log(`[WS${this.wsNumber}] Creating reconnect timeout (base=${baseReconnectTime}ms, backoff=${Math.floor(backoffTime)}ms, jitter=${Math.floor(jitter)}ms, final=${reconnectTime}ms)`);
+      this.addLog(this.wsNumber, `⏱️ Reconnect in ${Math.floor(reconnectTime/1000)}s (retry ${this.offSleepRetryCount + 1}/${this.maxOffSleepRetries})`);
+      
+      // Increment retry count
+      this.offSleepRetryCount++;
+      
       const timeoutId = setTimeout(() => {
         // Double-check if user disconnected before reconnecting
         // This check happens INSIDE the timeout callback
         console.log(`[WS${this.wsNumber}] Reconnect timeout fired - checking connected=${this.config.connected}`);
         this.addLog(this.wsNumber, `⏰ Timeout fired! Checking connected=${this.config.connected}`);
+        
         if (!this.config.connected && typeof this.config.connected !== 'undefined') {
           console.log(`[WS${this.wsNumber}] ❌ User disconnected - skipping auto-reconnect`);
           this.addLog(this.wsNumber, `❌ User disconnected - SKIPPING reconnect`);
+          this.isOffSleepActive = false;
+          this.offSleepRetryCount = 0;
+          this.reconnectTimeoutId = null;
           return;
         }
         
         console.log(`[WS${this.wsNumber}] ✅ Proceeding with auto-reconnect`);
         this.addLog(this.wsNumber, `✅ Proceeding with RECONNECT!`);
+        
+        // Clear the stored timeout ID before reconnecting
+        this.reconnectTimeoutId = null;
+        
         // reconnectCallback will also check if user disconnected
         if (this.reconnect) {
           this.reconnect(this.wsNumber);
@@ -2245,6 +2301,8 @@ class FinalCompleteGameLogic {
       
     } catch (error) {
       console.error(`[WS${this.wsNumber}] Error in OffSleep:`, error);
+      this.isOffSleepActive = false;
+      this.reconnectTimeoutId = null;
     }
   }
 

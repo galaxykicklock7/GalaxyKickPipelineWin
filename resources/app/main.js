@@ -289,8 +289,15 @@ function createWebSocketConnection(wsNumber, recoveryCode = null, isRetry = fals
   
   if (isRetry) {
     retryState.count++;
-    const delay = Math.min(retryState.backoff * Math.pow(2, retryState.count - 1), 30000); // Max 30s
-    addLog(wsNumber, `🔄 Retry attempt ${retryState.count}/${retryState.maxRetries} in ${delay}ms...`);
+    const baseDelay = retryState.backoff * Math.pow(2, retryState.count - 1);
+    const cappedDelay = Math.min(baseDelay, 30000); // Max 30s
+    
+    // Add jitter (±20%) to prevent thundering herd
+    const jitterRange = cappedDelay * 0.2;
+    const jitter = (Math.random() * jitterRange * 2) - jitterRange;
+    const delay = Math.max(1000, Math.floor(cappedDelay + jitter)); // Min 1 second
+    
+    addLog(wsNumber, `🔄 Retry ${retryState.count}/${retryState.maxRetries} in ${Math.floor(delay/1000)}s`);
     
     // Rotate code on retry if rotateRC is enabled
     if (appState.config.rotateRC) {
@@ -368,6 +375,10 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
     appState.wsStatus[wsKey] = true;
     retryState.count = 0; // Reset retry counter on successful connection
     gameLogic.resetState(); // Reset game state for new connection
+    
+    // Reset OffSleep retry counter on successful connection
+    gameLogic.offSleepRetryCount = 0;
+    gameLogic.isOffSleepActive = false;
     
     // Increment the counter for code rotation (matches bestscript.js behavior)
     gameLogic.inc++;
@@ -661,6 +672,20 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
     appState.wsStatus[wsKey] = false;
     addLog(wsNumber, `⚠️ Connection closed (code: ${code})`);
     
+    // Check if OffSleep is already handling reconnection
+    if (gameLogic.isOffSleepActive) {
+      console.log(`[WS${wsNumber}] ⏰ OffSleep is handling reconnection - skipping ws.on('close') retry logic`);
+      addLog(wsNumber, `⏰ OffSleep active - skipping auto-retry`);
+      return;
+    }
+    
+    // Clear any pending reconnect timeout
+    if (gameLogic.reconnectTimeoutId) {
+      clearTimeout(gameLogic.reconnectTimeoutId);
+      gameLogic.reconnectTimeoutId = null;
+      console.log(`[WS${wsNumber}] Cleared stale reconnectTimeoutId on close`);
+    }
+    
     // Only retry if not a clean disconnect and config still has the code
     const recoveryCodeStillExists = appState.config[`rc${wsNumber}`] || appState.config[`rcl${wsNumber}`] || (wsNumber === 5 && appState.config.kickrc);
     // Check BOTH appState.connected AND appState.config.connected
@@ -687,6 +712,20 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
     console.error(`WebSocket ${wsNumber} error:`, error);
     appState.wsStatus[wsKey] = false;
     addLog(wsNumber, `❌ Error: ${error.message}`);
+    
+    // Check if OffSleep is already handling reconnection
+    if (gameLogic.isOffSleepActive) {
+      console.log(`[WS${wsNumber}] ⏰ OffSleep is handling reconnection - skipping ws.on('error') retry logic`);
+      addLog(wsNumber, `⏰ OffSleep active - skipping error retry`);
+      return;
+    }
+    
+    // Clear any pending reconnect timeout
+    if (gameLogic.reconnectTimeoutId) {
+      clearTimeout(gameLogic.reconnectTimeoutId);
+      gameLogic.reconnectTimeoutId = null;
+      console.log(`[WS${wsNumber}] Cleared stale reconnectTimeoutId on error`);
+    }
     
     // Retry on connection errors
     const recoveryCodeStillExists = appState.config[`rc${wsNumber}`] || appState.config[`rcl${wsNumber}`] || (wsNumber === 5 && appState.config.kickrc);
