@@ -89,7 +89,15 @@ let appState = {
     // Code rotation
     rotateRC: false,
     // Smart Mode options (NEW)
-    roundRobin: false  // Enable round robin target selection in smart mode
+    roundRobin: false,  // Enable round robin target selection in smart mode
+    // AI Mode options (NEW - Competitive Edge Detection)
+    aiMode: false,              // Enable AI edge detection
+    aiMinTiming: 1800,          // Minimum timing to test (ms)
+    aiMaxTiming: 2200,          // Maximum timing to test (ms)
+    aiSafetyBuffer: 10,         // Safety buffer added to edge (ms)
+    aiTargetSuccessRate: 95,    // Target success rate (percentage 0-100)
+    aiEdgeTestFreq: 10,         // Edge test frequency (percentage 0-100)
+    aiAdaptive: true            // Keep testing edge vs lock to optimal
   },
   logs: {
     log1: [],
@@ -377,6 +385,11 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
     appState.wsStatus[wsKey] = true;
     retryState.count = 0; // Reset retry counter on successful connection
     gameLogic.resetState(); // Reset game state for new connection
+    
+    // Initialize AI Mode if enabled
+    if (appState.config.aiMode) {
+      gameLogic.initAIMode();
+    }
     
     // Reset OffSleep retry counter on successful connection
     gameLogic.offSleepRetryCount = 0;

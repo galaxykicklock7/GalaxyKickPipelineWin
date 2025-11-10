@@ -69,6 +69,42 @@ class FinalCompleteGameLogic {
     this.attackedThisSession = new Set(); // Track who was attacked this session
     this.targetIndex = 0; // For round robin mode
     this.cooldownDuration = 3500; // 3.5 seconds cooldown after attack
+    
+    // AI Mode - Edge Detection (NEW)
+    this.aiMode = {
+      enabled: false,
+      phase: 'discovery',           // 'discovery', 'exploitation', 'adaptive'
+      discoveryAttempts: 0,
+      maxDiscoveryAttempts: 20,     // Binary search completes in ~20 attempts
+      
+      // Binary search state
+      searchMin: 1800,
+      searchMax: 2200,
+      currentTestTiming: null,
+      
+      // Timing candidates and results
+      timingResults: {},            // { timing: {attempts, successes, failures, rate} }
+      
+      // Edge detection
+      edgeFound: false,
+      edgeTiming: null,             // Fastest timing with acceptable success rate
+      edgeConfidence: 0,            // Confidence level (0-1)
+      optimalTiming: null,          // Edge + safety buffer
+      
+      // Statistics
+      totalAttempts: 0,
+      totalSuccesses: 0,
+      totalFailures: 0,
+      overallSuccessRate: 0,
+      
+      // Adaptive testing
+      lastEdgeTest: 0,
+      edgeTestResults: [],          // Recent edge test outcomes
+      
+      // Track last attack for result recording
+      lastAttackTiming: null,
+      pendingResult: false          // Whether we're waiting for attack result
+    };
   }
 
   // Parse haaapsi
@@ -185,6 +221,15 @@ class FinalCompleteGameLogic {
   
   // Helper: Get timing based on mode (QUICK FIX #1: No more averaging!)
   getTiming(mode) {
+    // AI MODE OVERRIDE: Use AI-determined timing if enabled
+    if (this.config.aiMode && this.aiMode.enabled && mode === "attack") {
+      const aiTiming = this.getAITiming();
+      // Track this timing for result recording
+      this.aiMode.lastAttackTiming = aiTiming;
+      this.aiMode.pendingResult = true;
+      return aiTiming;
+    }
+    
     // mode can be: "attack" or "defense"
     if (mode === "defense") {
       return parseInt(this.config[`waiting${this.wsNumber}`] || 1910);
@@ -201,6 +246,275 @@ class FinalCompleteGameLogic {
     } else {
       return mode === "defense" ? "Defense" : "Attack";
     }
+  }
+  
+  // ========================================
+  // AI MODE - EDGE DETECTION
+  // ========================================
+  
+  // Initialize AI Mode
+  initAIMode() {
+    if (!this.config.aiMode) return;
+    
+    this.aiMode.enabled = true;
+    this.aiMode.searchMin = parseInt(this.config.aiMinTiming || 1800);
+    this.aiMode.searchMax = parseInt(this.config.aiMaxTiming || 2200);
+    this.aiMode.phase = 'discovery';
+    
+    // Start with midpoint
+    this.aiMode.currentTestTiming = Math.floor((this.aiMode.searchMin + this.aiMode.searchMax) / 2);
+    
+    this.addLog(this.wsNumber, `🤖 AI Mode: Starting edge detection`);
+    this.addLog(this.wsNumber, `📊 Search range: ${this.aiMode.searchMin}-${this.aiMode.searchMax}ms`);
+    console.log(`[WS${this.wsNumber}] AI Mode initialized: ${this.aiMode.searchMin}-${this.aiMode.searchMax}ms`);
+  }
+  
+  // Get AI-determined timing
+  getAITiming() {
+    if (!this.aiMode.enabled) {
+      // Fallback to normal timing
+      return parseInt(this.config[`attack${this.wsNumber}`] || 1940);
+    }
+    
+    if (this.aiMode.phase === 'discovery') {
+      // Binary search phase - test current candidate
+      return this.aiMode.currentTestTiming;
+    } else if (this.aiMode.phase === 'exploitation') {
+      // Use found optimal
+      return this.aiMode.optimalTiming;
+    } else if (this.aiMode.phase === 'adaptive') {
+      // Adaptive: mostly use optimal, occasionally test edge
+      const shouldTestEdge = Math.random() * 100 < parseInt(this.config.aiEdgeTestFreq || 10);
+      
+      if (shouldTestEdge && this.aiMode.edgeTiming) {
+        this.aiMode.lastEdgeTest = Date.now();
+        this.addLog(this.wsNumber, `🔬 AI: Testing edge at ${this.aiMode.edgeTiming}ms`);
+        return this.aiMode.edgeTiming;
+      } else {
+        return this.aiMode.optimalTiming;
+      }
+    }
+    
+    // Fallback
+    return this.aiMode.optimalTiming || parseInt(this.config[`attack${this.wsNumber}`] || 1940);
+  }
+  
+  // Record AI attack result
+  recordAIResult(timing, success) {
+    if (!this.aiMode.enabled) return;
+    
+    // Update overall stats
+    this.aiMode.totalAttempts++;
+    if (success) {
+      this.aiMode.totalSuccesses++;
+    } else {
+      this.aiMode.totalFailures++;
+    }
+    this.aiMode.overallSuccessRate = this.aiMode.totalSuccesses / this.aiMode.totalAttempts;
+    
+    // Record timing-specific result
+    if (!this.aiMode.timingResults[timing]) {
+      this.aiMode.timingResults[timing] = {
+        attempts: 0,
+        successes: 0,
+        failures: 0,
+        rate: 0
+      };
+    }
+    
+    const result = this.aiMode.timingResults[timing];
+    result.attempts++;
+    if (success) {
+      result.successes++;
+    } else {
+      result.failures++;
+    }
+    result.rate = result.successes / result.attempts;
+    
+    console.log(`[WS${this.wsNumber}] AI Result: ${timing}ms → ${success ? 'SUCCESS' : 'FAIL'} (${Math.round(result.rate * 100)}% over ${result.attempts} attempts)`);
+    
+    // Process based on phase
+    if (this.aiMode.phase === 'discovery') {
+      this.processDiscoveryResult(timing, success);
+    } else if (this.aiMode.phase === 'adaptive') {
+      this.processAdaptiveResult(timing, success);
+    }
+  }
+  
+  // Process discovery phase result (Binary search)
+  processDiscoveryResult(timing, success) {
+    this.aiMode.discoveryAttempts++;
+    
+    const result = this.aiMode.timingResults[timing];
+    
+    // Need at least 2 attempts per timing for confidence
+    if (result.attempts < 2) {
+      // Keep testing same timing
+      this.addLog(this.wsNumber, `📊 AI: ${timing}ms → ${Math.round(result.rate * 100)}% (sample ${result.attempts}/2)`);
+      return;
+    }
+    
+    // Have enough samples, make binary search decision
+    if (result.rate >= 0.5) {
+      // Success rate >= 50%, this timing works, try faster
+      this.addLog(this.wsNumber, `✅ AI: ${timing}ms works (${Math.round(result.rate * 100)}%) - trying faster`);
+      this.aiMode.searchMax = timing;
+      
+      // Calculate new test timing (go faster)
+      const newTiming = Math.floor((this.aiMode.searchMin + this.aiMode.searchMax) / 2);
+      
+      if (newTiming === timing || Math.abs(newTiming - timing) < 5) {
+        // Converged! Found edge
+        this.finalizeEdge();
+      } else {
+        this.aiMode.currentTestTiming = newTiming;
+        this.addLog(this.wsNumber, `🔍 AI: Next test ${newTiming}ms`);
+      }
+    } else {
+      // Success rate < 50%, too fast, go slower
+      this.addLog(this.wsNumber, `❌ AI: ${timing}ms too fast (${Math.round(result.rate * 100)}%) - going slower`);
+      this.aiMode.searchMin = timing;
+      
+      // Calculate new test timing (go slower)
+      const newTiming = Math.floor((this.aiMode.searchMin + this.aiMode.searchMax) / 2);
+      
+      if (newTiming === timing || Math.abs(newTiming - timing) < 5) {
+        // Converged! Found edge
+        this.finalizeEdge();
+      } else {
+        this.aiMode.currentTestTiming = newTiming;
+        this.addLog(this.wsNumber, `🔍 AI: Next test ${newTiming}ms`);
+      }
+    }
+    
+    // Check if discovery phase is complete
+    if (this.aiMode.discoveryAttempts >= this.aiMode.maxDiscoveryAttempts) {
+      this.finalizeEdge();
+    }
+  }
+  
+  // Finalize edge detection
+  finalizeEdge() {
+    // Find fastest timing with success rate >= target
+    const targetRate = parseInt(this.config.aiTargetSuccessRate || 95) / 100;
+    const safetyBuffer = parseInt(this.config.aiSafetyBuffer || 10);
+    
+    let bestTiming = null;
+    let bestRate = 0;
+    
+    // Sort timings and find fastest with acceptable rate
+    const timings = Object.keys(this.aiMode.timingResults)
+      .map(t => parseInt(t))
+      .sort((a, b) => a - b);
+    
+    for (const timing of timings) {
+      const result = this.aiMode.timingResults[timing];
+      if (result.attempts >= 2 && result.rate >= targetRate) {
+        bestTiming = timing;
+        bestRate = result.rate;
+        break; // Found fastest with acceptable rate
+      }
+    }
+    
+    if (!bestTiming) {
+      // No timing met target, use safest
+      for (const timing of timings.reverse()) {
+        const result = this.aiMode.timingResults[timing];
+        if (result.attempts >= 2 && result.rate > bestRate) {
+          bestTiming = timing;
+          bestRate = result.rate;
+        }
+      }
+    }
+    
+    if (bestTiming) {
+      this.aiMode.edgeFound = true;
+      this.aiMode.edgeTiming = bestTiming;
+      this.aiMode.edgeConfidence = bestRate;
+      this.aiMode.optimalTiming = bestTiming + safetyBuffer;
+      
+      this.addLog(this.wsNumber, `🎯 AI: Edge found at ${bestTiming}ms (${Math.round(bestRate * 100)}% confidence)`);
+      this.addLog(this.wsNumber, `⚡ AI: Using ${this.aiMode.optimalTiming}ms (${bestTiming}ms + ${safetyBuffer}ms buffer)`);
+      console.log(`[WS${this.wsNumber}] AI Mode: Edge=${bestTiming}ms, Optimal=${this.aiMode.optimalTiming}ms`);
+      
+      // Switch to adaptive phase if enabled
+      if (this.config.aiAdaptive) {
+        this.aiMode.phase = 'adaptive';
+        this.addLog(this.wsNumber, `🔄 AI: Switching to adaptive mode`);
+      } else {
+        this.aiMode.phase = 'exploitation';
+        this.addLog(this.wsNumber, `✅ AI: Locked to optimal timing`);
+      }
+    } else {
+      // Couldn't find edge, fallback
+      this.addLog(this.wsNumber, `⚠️ AI: Could not determine edge, using default`);
+      this.aiMode.enabled = false;
+    }
+  }
+  
+  // Process adaptive phase result
+  processAdaptiveResult(timing, success) {
+    // Check if we need to re-run discovery
+    const targetRate = parseInt(this.config.aiTargetSuccessRate || 95) / 100;
+    
+    if (this.aiMode.overallSuccessRate < targetRate * 0.9) {
+      // Success rate dropped significantly, re-run discovery
+      this.addLog(this.wsNumber, `⚠️ AI: Success rate dropped to ${Math.round(this.aiMode.overallSuccessRate * 100)}% - rediscovering edge`);
+      this.resetAIDiscovery();
+    }
+    
+    // Track edge test results
+    if (timing === this.aiMode.edgeTiming) {
+      this.aiMode.edgeTestResults.push(success);
+      if (this.aiMode.edgeTestResults.length > 10) {
+        this.aiMode.edgeTestResults.shift();
+      }
+      
+      // Update optimal if edge consistently succeeds
+      const recentEdgeSuccess = this.aiMode.edgeTestResults.filter(r => r).length / this.aiMode.edgeTestResults.length;
+      if (this.aiMode.edgeTestResults.length >= 5 && recentEdgeSuccess >= 0.8) {
+        // Edge is stable, can use it
+        const safetyBuffer = parseInt(this.config.aiSafetyBuffer || 10);
+        const newOptimal = this.aiMode.edgeTiming + Math.floor(safetyBuffer / 2);
+        if (newOptimal < this.aiMode.optimalTiming) {
+          this.aiMode.optimalTiming = newOptimal;
+          this.addLog(this.wsNumber, `⚡ AI: Edge stable - updated optimal to ${newOptimal}ms`);
+        }
+      }
+    }
+  }
+  
+  // Reset AI discovery
+  resetAIDiscovery() {
+    this.aiMode.phase = 'discovery';
+    this.aiMode.discoveryAttempts = 0;
+    this.aiMode.searchMin = parseInt(this.config.aiMinTiming || 1800);
+    this.aiMode.searchMax = parseInt(this.config.aiMaxTiming || 2200);
+    this.aiMode.currentTestTiming = Math.floor((this.aiMode.searchMin + this.aiMode.searchMax) / 2);
+    this.aiMode.timingResults = {};
+    this.aiMode.totalAttempts = 0;
+    this.aiMode.totalSuccesses = 0;
+    this.aiMode.totalFailures = 0;
+    this.aiMode.overallSuccessRate = 0;
+  }
+  
+  // Get AI statistics for API/logging
+  getAIStats() {
+    if (!this.aiMode.enabled) {
+      return { enabled: false };
+    }
+    
+    return {
+      enabled: true,
+      phase: this.aiMode.phase,
+      edgeFound: this.aiMode.edgeFound,
+      edgeTiming: this.aiMode.edgeTiming,
+      optimalTiming: this.aiMode.optimalTiming,
+      confidence: Math.round(this.aiMode.edgeConfidence * 100),
+      successRate: Math.round(this.aiMode.overallSuccessRate * 100),
+      samples: this.aiMode.totalAttempts,
+      discoveryProgress: `${this.aiMode.discoveryAttempts}/${this.aiMode.maxDiscoveryAttempts}`
+    };
   }
   
   // ========================================
@@ -1737,9 +2051,20 @@ class FinalCompleteGameLogic {
       if (snippets.length >= 7 && snippets[6] === "3s") {
         this.threesec = true;
         this.consecutiveErrors++;  // Track for adaptive step size
+        
+        // AI Mode: Record failure
+        if (this.aiMode.enabled && this.aiMode.pendingResult && this.aiMode.lastAttackTiming) {
+          this.recordAIResult(this.aiMode.lastAttackTiming, false);
+          this.aiMode.pendingResult = false;
+        }
         this.consecutiveSuccesses = 0;  // Reset success counter
         this.addLog(this.wsNumber, `⏰ 3-second error (attempt #${this.consecutiveErrors})`);
         
+      } else if (this.aiMode.enabled && this.aiMode.pendingResult && this.aiMode.lastAttackTiming) {
+        // AI Mode: If we got 850 message and no 3s error, it's a success
+        this.recordAIResult(this.aiMode.lastAttackTiming, true);
+        this.aiMode.pendingResult = false;
+      }
         // QUICK FIX #2: Only adjust relevant timing based on status
         if (this.config.timershift) {
           if (this.status === "attack") {
