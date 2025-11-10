@@ -2258,7 +2258,7 @@ class FinalCompleteGameLogic {
       // Add jitter (±20%) to prevent thundering herd
       const jitterRange = backoffTime * 0.2;
       const jitter = (Math.random() * jitterRange * 2) - jitterRange;
-      const reconnectTime = Math.max(1000, Math.floor(backoffTime + jitter)); // Min 1 second
+      const reconnectTime = Math.max(100, Math.floor(backoffTime + jitter)); // Min 100ms to prevent invalid values
       
       console.log(`[WS${this.wsNumber}] Creating reconnect timeout (base=${baseReconnectTime}ms, backoff=${Math.floor(backoffTime)}ms, jitter=${Math.floor(jitter)}ms, final=${reconnectTime}ms)`);
       this.addLog(this.wsNumber, `⏱️ Reconnect in ${Math.floor(reconnectTime/1000)}s (retry ${this.offSleepRetryCount + 1}/${this.maxOffSleepRetries})`);

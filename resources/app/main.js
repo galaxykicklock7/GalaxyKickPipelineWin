@@ -295,7 +295,7 @@ function createWebSocketConnection(wsNumber, recoveryCode = null, isRetry = fals
     // Add jitter (±20%) to prevent thundering herd
     const jitterRange = cappedDelay * 0.2;
     const jitter = (Math.random() * jitterRange * 2) - jitterRange;
-    const delay = Math.max(1000, Math.floor(cappedDelay + jitter)); // Min 1 second
+    const delay = Math.max(100, Math.floor(cappedDelay + jitter)); // Min 100ms to prevent invalid values
     
     addLog(wsNumber, `🔄 Retry ${retryState.count}/${retryState.maxRetries} in ${Math.floor(delay/1000)}s`);
     
