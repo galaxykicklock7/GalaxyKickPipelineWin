@@ -57,6 +57,12 @@ class FinalCompleteGameLogic {
     this.offSleepRetryCount = 0; // Track OffSleep reconnection attempts
     this.maxOffSleepRetries = 10; // Maximum OffSleep reconnection attempts
     this.innerTimeouts = []; // Track all inner timeouts (from forEach loops)
+    
+    // Timer Shift improvements (NEW)
+    this.consecutiveErrors = 0; // Track consecutive 3s errors for adaptive step size
+    this.consecutiveSuccesses = 0; // Track consecutive successes
+    this.recentAdjustments = []; // Track last 5 adjustments to detect oscillation
+    this.maxAdjustmentHistory = 5; // Keep last 5 adjustments
   }
 
   // Parse haaapsi
@@ -115,26 +121,108 @@ class FinalCompleteGameLogic {
     
     // Reset reconnection flags
     this.isOffSleepActive = false;
+    
+    // DON'T reset timer shift counters or adjustments - we want to keep learning!
+    // consecutiveErrors, consecutiveSuccesses, recentAdjustments will persist
+  }
+  
+  // MEDIUM #3: Log learned optimal timings (for persistence)
+  logLearnedTimings() {
+    const attack = this.config[`attack${this.wsNumber}`] || 1940;
+    const defense = this.config[`waiting${this.wsNumber}`] || 1910;
+    this.addLog(this.wsNumber, `📊 Learned timings - Attack: ${attack}ms, Defense: ${defense}ms`);
+    console.log(`[WS${this.wsNumber}] 📊 LEARNED OPTIMAL TIMINGS: attack${this.wsNumber}=${attack}, waiting${this.wsNumber}=${defense}`);
+    return { attack, defense };
   }
 
   // ========================================
-  // TIMER SHIFT FEATURE (NEW!)
+  // TIMER SHIFT FEATURE (IMPROVED!)
   // ========================================
+  
+  // Helper: Get adaptive step size based on consecutive errors
+  getAdaptiveStepSize(baseStep) {
+    if (this.consecutiveErrors >= 5) {
+      return baseStep * 5; // 50ms jumps if 5+ errors
+    } else if (this.consecutiveErrors >= 3) {
+      return baseStep * 3; // 30ms jumps if 3-4 errors
+    } else if (this.consecutiveErrors >= 2) {
+      return baseStep * 2; // 20ms jumps if 2 errors
+    }
+    return baseStep; // 10ms for 0-1 errors
+  }
+  
+  // Helper: Detect oscillation pattern
+  isOscillating() {
+    if (this.recentAdjustments.length < 4) return false;
+    
+    // Check if alternating +/- pattern (e.g., [+10, -10, +10, -10])
+    let alternating = true;
+    for (let i = 1; i < this.recentAdjustments.length; i++) {
+      const curr = this.recentAdjustments[i];
+      const prev = this.recentAdjustments[i - 1];
+      if ((curr > 0 && prev > 0) || (curr < 0 && prev < 0)) {
+        alternating = false;
+        break;
+      }
+    }
+    
+    return alternating;
+  }
+  
+  // Helper: Track adjustment for oscillation detection
+  trackAdjustment(value) {
+    this.recentAdjustments.push(value);
+    if (this.recentAdjustments.length > this.maxAdjustmentHistory) {
+      this.recentAdjustments.shift(); // Keep only last 5
+    }
+  }
+  
+  // Helper: Get timing based on mode (QUICK FIX #1: No more averaging!)
+  getTiming(mode) {
+    // mode can be: "attack" or "defense"
+    if (mode === "defense") {
+      return parseInt(this.config[`waiting${this.wsNumber}`] || 1910);
+    } else {
+      // Default to attack timing
+      return parseInt(this.config[`attack${this.wsNumber}`] || 1940);
+    }
+  }
+  
+  // Helper: Get timing label based on mode and timershift
+  getTimingLabel(mode) {
+    if (this.config.timershift) {
+      return mode === "defense" ? "Auto Defense" : "Auto Attack";
+    } else {
+      return mode === "defense" ? "Defense" : "Attack";
+    }
+  }
   
   incrementAttack() {
     if (!this.config.timershift) return;
     
     const currentKey = `attack${this.wsNumber}`;
     let value = parseInt(this.config[currentKey] || 1940);
-    const incrementValue = parseInt(this.config.incrementvalue || 10);
+    const baseIncrement = parseInt(this.config.incrementvalue || 10);
     const maxAtk = parseInt(this.config.maxatk || 3000);
+    
+    // Use adaptive step size
+    let incrementValue = this.getAdaptiveStepSize(baseIncrement);
+    
+    // Reduce step size if oscillating
+    if (this.isOscillating()) {
+      incrementValue = Math.max(1, Math.floor(incrementValue / 2));
+      this.addLog(this.wsNumber, `⚠️ Oscillation detected - reducing step to ${incrementValue}ms`);
+    }
     
     value += incrementValue;
     
     if (value <= maxAtk) {
       this.config[currentKey] = value;
       this.updateConfig(currentKey, value);
-      this.addLog(this.wsNumber, `⏫ Attack timing increased to ${value}ms`);
+      this.trackAdjustment(+incrementValue);
+      this.addLog(this.wsNumber, `⏫ Attack timing increased to ${value}ms (+${incrementValue}ms)`);
+    } else {
+      this.addLog(this.wsNumber, `⚠️ Attack timing at maximum (${maxAtk}ms)`);
     }
   }
 
@@ -143,15 +231,27 @@ class FinalCompleteGameLogic {
     
     const currentKey = `attack${this.wsNumber}`;
     let value = parseInt(this.config[currentKey] || 1940);
-    const decrementValue = parseInt(this.config.decrementvalue || 10);
+    const baseDecrement = parseInt(this.config.decrementvalue || 10);
     const minAtk = parseInt(this.config.minatk || 1000);
+    
+    // Use smaller steps for decrement (more conservative)
+    let decrementValue = baseDecrement;
+    
+    // Reduce step size if oscillating
+    if (this.isOscillating()) {
+      decrementValue = Math.max(1, Math.floor(decrementValue / 2));
+      this.addLog(this.wsNumber, `⚠️ Oscillation detected - reducing step to ${decrementValue}ms`);
+    }
     
     value -= decrementValue;
     
     if (value >= minAtk) {
       this.config[currentKey] = value;
       this.updateConfig(currentKey, value);
-      this.addLog(this.wsNumber, `⏬ Attack timing decreased to ${value}ms`);
+      this.trackAdjustment(-decrementValue);
+      this.addLog(this.wsNumber, `⏬ Attack timing decreased to ${value}ms (-${decrementValue}ms)`);
+    } else {
+      this.addLog(this.wsNumber, `⚠️ Attack timing at minimum (${minAtk}ms)`);
     }
   }
 
@@ -160,15 +260,27 @@ class FinalCompleteGameLogic {
     
     const currentKey = `waiting${this.wsNumber}`;
     let value = parseInt(this.config[currentKey] || 1910);
-    const incrementValue = parseInt(this.config.incrementvalue || 10);
+    const baseIncrement = parseInt(this.config.incrementvalue || 10);
     const maxDef = parseInt(this.config.maxdef || 3000);
+    
+    // Use adaptive step size
+    let incrementValue = this.getAdaptiveStepSize(baseIncrement);
+    
+    // Reduce step size if oscillating
+    if (this.isOscillating()) {
+      incrementValue = Math.max(1, Math.floor(incrementValue / 2));
+      this.addLog(this.wsNumber, `⚠️ Oscillation detected - reducing step to ${incrementValue}ms`);
+    }
     
     value += incrementValue;
     
     if (value <= maxDef) {
       this.config[currentKey] = value;
       this.updateConfig(currentKey, value);
-      this.addLog(this.wsNumber, `⏫ Waiting timing increased to ${value}ms`);
+      this.trackAdjustment(+incrementValue);
+      this.addLog(this.wsNumber, `⏫ Defense timing increased to ${value}ms (+${incrementValue}ms)`);
+    } else {
+      this.addLog(this.wsNumber, `⚠️ Defense timing at maximum (${maxDef}ms)`);
     }
   }
 
@@ -177,15 +289,27 @@ class FinalCompleteGameLogic {
     
     const currentKey = `waiting${this.wsNumber}`;
     let value = parseInt(this.config[currentKey] || 1910);
-    const decrementValue = parseInt(this.config.decrementvalue || 10);
+    const baseDecrement = parseInt(this.config.decrementvalue || 10);
     const minDef = parseInt(this.config.mindef || 1000);
+    
+    // Use smaller steps for decrement (more conservative)
+    let decrementValue = baseDecrement;
+    
+    // Reduce step size if oscillating
+    if (this.isOscillating()) {
+      decrementValue = Math.max(1, Math.floor(decrementValue / 2));
+      this.addLog(this.wsNumber, `⚠️ Oscillation detected - reducing step to ${decrementValue}ms`);
+    }
     
     value -= decrementValue;
     
     if (value >= minDef) {
       this.config[currentKey] = value;
       this.updateConfig(currentKey, value);
-      this.addLog(this.wsNumber, `⏬ Waiting timing decreased to ${value}ms`);
+      this.trackAdjustment(-decrementValue);
+      this.addLog(this.wsNumber, `⏬ Defense timing decreased to ${value}ms (-${decrementValue}ms)`);
+    } else {
+      this.addLog(this.wsNumber, `⚠️ Defense timing at minimum (${minDef}ms)`);
     }
   }
 
@@ -566,11 +690,9 @@ class FinalCompleteGameLogic {
       
       // Execute actions for matched users
       if (usersToAct.length > 0) {
-        // Timer shift: use average of attack + waiting when enabled
-        const attackTime = parseInt(this.config[`attack${this.wsNumber}`] || 1940);
-        const waitingTime = parseInt(this.config[`waiting${this.wsNumber}`] || 1910);
-        const timing = this.config.timershift ? Math.round((attackTime + waitingTime) / 2) : attackTime;
-        const timingLabel = this.config.timershift ? "Auto" : "Attack";
+        // IMPROVED: Use appropriate timing (no averaging!)
+        const timing = this.getTiming("attack");  // Use attack timing
+        const timingLabel = this.getTimingLabel("attack");
         
         console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - Acting on ${usersToAct.length} user(s)`);
         this.addLog(this.wsNumber, `${isKickMode ? '👢' : '⚔️'} Found ${usersToAct.length} user(s) to ${actionType.toLowerCase()}`);
@@ -646,11 +768,9 @@ class FinalCompleteGameLogic {
       const gangblacklistfull = (this.config.gangblacklist || "").toLowerCase();
       const gangblacklist = gangblacklistfull.split("\n").filter(g => g.trim());
       
-      // Timer shift: use average of attack + waiting when enabled
-      const attackTime = parseInt(this.config[`attack${this.wsNumber}`] || 1940);
-      const waitingTime = parseInt(this.config[`waiting${this.wsNumber}`] || 1910);
-      const timing = this.config.timershift ? Math.round((attackTime + waitingTime) / 2) : attackTime;
-      const timingLabel = this.config.timershift ? "Auto" : "Attack";
+      // IMPROVED: Use attack timing (no averaging!)
+      const timing = this.getTiming("attack");
+      const timingLabel = this.getTimingLabel("attack");
 
       // Process username blacklist
       if (blacklistfull) {
@@ -837,11 +957,9 @@ class FinalCompleteGameLogic {
         return false;
       });
 
-      // Timer shift: use average of attack + waiting when enabled
-      const attackTime = parseInt(this.config[`attack${this.wsNumber}`] || 1940);
-      const waitingTime = parseInt(this.config[`waiting${this.wsNumber}`] || 1910);
-      const timing = this.config.timershift ? Math.round((attackTime + waitingTime) / 2) : attackTime;
-      const timingLabel = this.config.timershift ? "Auto" : "Attack";
+      // IMPROVED: Use attack timing (no averaging!)
+      const timing = this.getTiming("attack");
+      const timingLabel = this.getTimingLabel("attack");
 
       if (!this.userFound && userids.length > 0) {
         // Filter out founder from userids
@@ -999,12 +1117,10 @@ class FinalCompleteGameLogic {
 
       // Attack if found and not founder
       if (foundMatch && !this.userFound) {
-        // Timer shift: use average of attack + waiting when enabled
-        const attackTime = parseInt(this.config[`attack${this.wsNumber}`] || 1940);
-        const waitingTime = parseInt(this.config[`waiting${this.wsNumber}`] || 1910);
-        const timing = this.config.timershift ? Math.round((attackTime + waitingTime) / 2) : attackTime;
-        const timingLabel = this.config.timershift ? "Auto" : "Attack";
-        const waiting = waitingTime;
+        // IMPROVED: Use attack timing (no averaging!)
+        const timing = this.getTiming("attack");
+        const timingLabel = this.getTimingLabel("attack");
+        const waiting = this.getTiming("defense");  // Separate defense timing
         
         this.userFound = true;
         this.useridattack = matchedId;
@@ -1063,11 +1179,9 @@ class FinalCompleteGameLogic {
         
         const gangblacklist = (this.config.gangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
         
-        // Timer shift: use average of attack + waiting when enabled
-        const attackTime = parseInt(this.config[`attack${this.wsNumber}`] || 1940);
-        const waitingTime = parseInt(this.config[`waiting${this.wsNumber}`] || 1910);
-        const timing = this.config.timershift ? Math.round((attackTime + waitingTime) / 2) : waitingTime;
-        const timingLabel = this.config.timershift ? "Auto" : "Defense";
+        // IMPROVED: Use defense timing (no averaging!)
+        const timing = this.getTiming("defense");
+        const timingLabel = this.getTimingLabel("defense");
         
         gangblacklist.forEach((element) => {
           if (element && username.includes(element)) {
@@ -1349,11 +1463,9 @@ class FinalCompleteGameLogic {
       
       // Execute action if conditions met
       if (shouldAct) {
-        // Timer shift: use average of attack + waiting when enabled
-        const attackTime = parseInt(this.config[`attack${this.wsNumber}`] || 1940);
-        const waitingTime = parseInt(this.config[`waiting${this.wsNumber}`] || 1910);
-        const timing = this.config.timershift ? Math.round((attackTime + waitingTime) / 2) : attackTime;
-        const timingLabel = this.config.timershift ? "Auto" : "Attack";
+        // IMPROVED: Use attack timing (no averaging!)
+        const timing = this.getTiming("attack");
+        const timingLabel = this.getTimingLabel("attack");
         
         this.addLog(this.wsNumber, `⚡ ${timingLabel} ${username} in ${timing}ms`);
         
@@ -1532,23 +1644,50 @@ class FinalCompleteGameLogic {
       // Check for 3-second event (TIMER SHIFT TRIGGER!)
       if (snippets.length >= 7 && snippets[6] === "3s") {
         this.threesec = true;
-        this.addLog(this.wsNumber, `⏰ 3-second event detected`);
+        this.consecutiveErrors++;  // Track for adaptive step size
+        this.consecutiveSuccesses = 0;  // Reset success counter
+        this.addLog(this.wsNumber, `⏰ 3-second error (attempt #${this.consecutiveErrors})`);
         
-        // Timer shift logic: When auto interval is enabled, adjust both attack AND defense
+        // QUICK FIX #2: Only adjust relevant timing based on status
         if (this.config.timershift) {
-          this.incrementAttack();
-          this.incrementDefence();
+          if (this.status === "attack") {
+            this.incrementAttack();  // Only adjust attack timing
+            this.addLog(this.wsNumber, `📊 Adjusting attack timing only`);
+          } else if (this.status === "defense") {
+            this.incrementDefence();  // Only adjust defense timing
+            this.addLog(this.wsNumber, `📊 Adjusting defense timing only`);
+          } else {
+            // Unknown status - adjust attack as default
+            this.incrementAttack();
+            this.addLog(this.wsNumber, `📊 Status unknown - adjusting attack timing`);
+          }
         }
       }
       
       // Check for success event (TIMER SHIFT DECREMENT!)
       if (snippets.length >= 4 && snippets[3] === "allows") {
-        this.addLog(this.wsNumber, `✅ Imprisoned successfully`);
+        this.consecutiveErrors = 0;  // Reset error counter
+        this.consecutiveSuccesses++;  // Track successes
+        this.addLog(this.wsNumber, `✅ Success #${this.consecutiveSuccesses}!`);
         
-        // Timer shift logic: When auto interval is enabled, adjust both attack AND defense
+        // QUICK FIX #2: Only adjust relevant timing based on status
         if (this.config.timershift) {
-          this.decrementAttack();
-          this.decrementDefence();
+          if (this.status === "attack") {
+            this.decrementAttack();  // Only adjust attack timing
+            this.addLog(this.wsNumber, `📊 Optimizing attack timing`);
+          } else if (this.status === "defense") {
+            this.decrementDefence();  // Only adjust defense timing
+            this.addLog(this.wsNumber, `📊 Optimizing defense timing`);
+          } else {
+            // Unknown status - adjust attack as default
+            this.decrementAttack();
+            this.addLog(this.wsNumber, `📊 Status unknown - optimizing attack timing`);
+          }
+          
+          // Log learned timings every 5 successes (MEDIUM #3: Persistence)
+          if (this.consecutiveSuccesses % 5 === 0) {
+            this.logLearnedTimings();
+          }
         }
       }
 
@@ -1688,14 +1827,9 @@ class FinalCompleteGameLogic {
           this.addLog(this.wsNumber, `👋 Target left: ${userid}`);
         }
         
-        // Timer shift: Decrement if left before 3-second event
-        if (this.config.timershift && !this.threesec) {
-          if (this.status === "attack") {
-            this.decrementAttack();
-          } else if (this.status === "defense") {
-            this.decrementDefence();
-          }
-        }
+        // QUICK FIX #3: Removed questionable "target leaving" decrement logic
+        // Reason: Target might have left for other reasons (imprisoned by someone else, 
+        // went to sleep, etc.) not because timing was slow. This caused incorrect adjustments.
         
         this.userFound = false;
         this.useridtarget = null;
