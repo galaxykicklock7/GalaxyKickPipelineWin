@@ -224,14 +224,20 @@ class FinalCompleteGameLogic {
       const filePath = this.getOpponentDataFilePath();
       console.log(`[WS${this.wsNumber}] 📂 Loading from: ${filePath}`);
       if (fs.existsSync(filePath)) {
-        const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        const fileContent = fs.readFileSync(filePath, 'utf8');
+        if (fileContent.trim() === '') {
+          console.log(`[WS${this.wsNumber}] ℹ️ File is empty, initializing`);
+          return { records: [], roundCounter: 0, lastCleanup: Date.now() };
+        }
+        const data = JSON.parse(fileContent);
         console.log(`[WS${this.wsNumber}] ✅ Loaded opponent data: ${data.records.length} records`);
         return data;
       } else {
         console.log(`[WS${this.wsNumber}] ℹ️ File doesn't exist yet, creating new data structure`);
       }
     } catch (error) {
-      console.error(`[WS${this.wsNumber}] ❌ Error loading opponent data:`, error);
+      console.error(`[WS${this.wsNumber}] ❌ Error loading opponent data:`, error.message);
+      console.log(`[WS${this.wsNumber}] 🔄 Initializing fresh data structure`);
     }
     return { records: [], roundCounter: 0, lastCleanup: Date.now() };
   }
@@ -465,29 +471,10 @@ class FinalCompleteGameLogic {
       return;
     }
     
-    // Start with wide range for stay duration (0-3000ms)
-    // Will narrow after collecting samples
-    this.aiMode.searchMin = 0;
-    this.aiMode.searchMax = 3000;
-    this.aiMode.currentTestTiming = 1500;  // Start at midpoint
     this.aiMode.phase = 'fast_discovery';
+    console.log(`[WS${this.wsNumber}] AI Mode ready - will attack 20ms before rival logout`);
     
-    if (sampleCount > 0) {
-      console.log(`[WS${this.wsNumber}] 🔄 Have ${sampleCount}/${this.aiMode.autoRangeSamples} samples - need ${this.aiMode.autoRangeSamples - sampleCount} more`);
-      this.addLog(this.wsNumber, `🔄 Have ${sampleCount}/${this.aiMode.autoRangeSamples} samples - collecting more`);
-    } else {
-      console.log(`[WS${this.wsNumber}] 🆕 No samples yet - starting fresh`);
-    }
-    
-    this.addLog(this.wsNumber, `🤖 AI Mode: ENABLED - Learning opponent timing`);
-    this.addLog(this.wsNumber, `� Ianitial range: ${this.aiMode.searchMin}-${this.aiMode.searchMax}ms (stay duration)`);
-    this.addLog(this.wsNumber, `🎯 Will narrow after ${this.aiMode.autoRangeSamples} samples`);
-    this.addLog(this.wsNumber, `⚡ Feedback: ±${this.aiMode.feedbackStep}ms adjustments`);
-    
-    console.log(`[WS${this.wsNumber}] AI Mode initialized:`);
-    console.log(`  - Initial range: ${this.aiMode.searchMin}-${this.aiMode.searchMax}ms`);
-    console.log(`  - Collecting samples: opponent stay duration (JOIN→PART/SLEEP)`);
-    console.log(`  - Will narrow after ${this.aiMode.autoRangeSamples} samples`);
+
   }
   
   // Track opponent LOGIN (353 or JOIN message)
@@ -683,38 +670,25 @@ class FinalCompleteGameLogic {
       return parseInt(this.config[`attack${this.wsNumber}`] || 1940);
     }
     
-    console.log(`[WS${this.wsNumber}] AI: phase=${this.aiMode.phase}, samples=${this.opponentTracking.samples.length}, optimalTiming=${this.aiMode.optimalTiming}`);
+    // SIMPLE LOGIC: Get most recent opponent stay duration and subtract 20ms
+    const samples = this.opponentTracking.samples;
     
-    // WAIT FOR FIRST SAMPLE: Use 1940ms to collect first rival time
-    if (this.aiMode.phase === 'fast_discovery') {
+    if (samples.length === 0) {
+      // No data yet - use safe timing to collect first sample
       const safeTiming = 1940;
       console.log(`[WS${this.wsNumber}] AI: No data yet - using ${safeTiming}ms to collect rival time`);
-      this.addLog(this.wsNumber, `📊 AI: Collecting rival time - using ${safeTiming}ms`);
+      this.addLog(this.wsNumber, `📊 AI: Waiting for rival data - using ${safeTiming}ms`);
       return safeTiming;
     }
     
-    // Increment round counter for range updates
-    if (this.aiMode.phase !== 'fast_discovery') {
-      this.checkRangeUpdate();
-    }
+    // Get the most recent stay duration
+    const recentStayDuration = samples[samples.length - 1];
+    const attackTiming = Math.max(100, recentStayDuration - 20); // Subtract 20ms, minimum 100ms
     
-    if (this.aiMode.phase === 'fast_discovery' || this.aiMode.phase === 'discovery') {
-      // Binary search phase - test current candidate
-      console.log(`[WS${this.wsNumber}] AI: Using test timing ${this.aiMode.currentTestTiming}ms`);
-      return this.aiMode.currentTestTiming;
-    } else if (this.aiMode.phase === 'exploitation') {
-      // Use found optimal
-      return this.aiMode.optimalTiming;
-    } else if (this.aiMode.phase === 'adaptive') {
-      // Adaptive: Use optimal timing
-      console.log(`[WS${this.wsNumber}] AI: Adaptive mode - using optimal ${this.aiMode.optimalTiming}ms`);
-      this.addLog(this.wsNumber, `⚡ AI: Using optimal ${this.aiMode.optimalTiming}ms`);
-      return this.aiMode.optimalTiming;
-    }
+    console.log(`[WS${this.wsNumber}] AI: Recent stay=${recentStayDuration}ms → Attack at ${attackTiming}ms (stay - 20ms)`);
+    this.addLog(this.wsNumber, `🎯 AI: Rival stayed ${recentStayDuration}ms → Attack ${attackTiming}ms`);
     
-    // Fallback
-    console.log(`[WS${this.wsNumber}] AI: Fallback - phase=${this.aiMode.phase}, optimalTiming=${this.aiMode.optimalTiming}`);
-    return this.aiMode.optimalTiming || parseInt(this.config[`attack${this.wsNumber}`] || 1940);
+    return attackTiming;
   }
   
   // Record AI attack result
