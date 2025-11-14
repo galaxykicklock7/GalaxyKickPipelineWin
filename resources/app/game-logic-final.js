@@ -141,7 +141,11 @@ class FinalCompleteGameLogic {
       // User tracking for login/logout detection (DETERMINISTIC)
       activeUsers: new Map(),       // Map<userid, {username, loginTime, loginRoundStart}>
       loginLogoutSamples: [],       // [{timing, type: 'login'|'logout', timestamp}]
-      roundStartTime: 0             // Start time of current round (for LOGIN timing)
+      roundStartTime: 0,            // Start time of current round (for LOGIN timing)
+      
+      // Memory-based storage (fallback if file system fails)
+      memoryStorage: { records: [], roundCounter: 0, lastCleanup: Date.now() },
+      useMemoryOnly: false          // Flag to use memory if file system unavailable
     };
   }
 
@@ -220,6 +224,12 @@ class FinalCompleteGameLogic {
   }
   
   loadOpponentData() {
+    // If memory-only mode is enabled, use memory storage
+    if (this.opponentTracking.useMemoryOnly) {
+      console.log(`[WS${this.wsNumber}] 💾 Using memory storage (${this.opponentTracking.memoryStorage.records.length} records)`);
+      return this.opponentTracking.memoryStorage;
+    }
+    
     try {
       const filePath = this.getOpponentDataFilePath();
       console.log(`[WS${this.wsNumber}] 📂 Loading from: ${filePath}`);
@@ -237,12 +247,21 @@ class FinalCompleteGameLogic {
       }
     } catch (error) {
       console.error(`[WS${this.wsNumber}] ❌ Error loading opponent data:`, error.message);
-      console.log(`[WS${this.wsNumber}] 🔄 Initializing fresh data structure`);
+      console.log(`[WS${this.wsNumber}] 🔄 Switching to memory-only mode`);
+      this.opponentTracking.useMemoryOnly = true;
+      return this.opponentTracking.memoryStorage;
     }
     return { records: [], roundCounter: 0, lastCleanup: Date.now() };
   }
   
   saveOpponentData(data) {
+    // If memory-only mode, just update memory storage
+    if (this.opponentTracking.useMemoryOnly) {
+      this.opponentTracking.memoryStorage = data;
+      console.log(`[WS${this.wsNumber}] 💾 Saved to memory (${data.records.length} records)`);
+      return;
+    }
+    
     try {
       const filePath = this.getOpponentDataFilePath();
       console.log(`[WS${this.wsNumber}] 💾 Saving to: ${filePath}`);
@@ -252,6 +271,9 @@ class FinalCompleteGameLogic {
     } catch (error) {
       console.error(`[WS${this.wsNumber}] ❌ Error saving opponent data:`, error);
       console.error(`[WS${this.wsNumber}] ❌ Error details:`, error.message);
+      console.log(`[WS${this.wsNumber}] 🔄 Switching to memory-only mode`);
+      this.opponentTracking.useMemoryOnly = true;
+      this.opponentTracking.memoryStorage = data;
     }
   }
   
