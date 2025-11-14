@@ -154,6 +154,10 @@ class FinalCompleteGameLogic {
       rivalProfiles: new Map(),     // Map<username, {samples: [], adaptiveOffset: -20, lastSeen: timestamp, stats: {}}>
       currentRival: null,           // Current rival we're facing
       
+      // PROACTIVE: Real-time monitoring
+      monitorInterval: null,        // Active monitor interval
+      monitoringRival: null,        // Rival being monitored
+      
       // Memory-based storage (fallback if file system fails)
       memoryStorage: { records: [], roundCounter: 0, lastCleanup: Date.now() },
       useMemoryOnly: false          // Flag to use memory if file system unavailable
@@ -213,6 +217,9 @@ class FinalCompleteGameLogic {
       this.innerTimeouts.forEach(timeout => clearTimeout(timeout));
       this.innerTimeouts = [];
     }
+    
+    // PROACTIVE: Stop real-time monitor
+    this.stopRealTimeMonitor();
     
     // Reset reconnection flags
     this.isOffSleepActive = false;
@@ -576,6 +583,101 @@ class FinalCompleteGameLogic {
     
     this.addLog(this.wsNumber, `🟢 Opponent: ${username}`);
     console.log(`[WS${this.wsNumber}] 👁️ Opponent JOIN: ${username} (${userid}) at ${Date.now()}`);
+    
+    // PROACTIVE: Start real-time monitoring for this rival
+    this.startRealTimeMonitor(userid, username);
+  }
+  
+  // PROACTIVE: Start real-time monitoring of rival
+  startRealTimeMonitor(userid, username) {
+    // Stop any existing monitor
+    this.stopRealTimeMonitor();
+    
+    // Get rival's profile to know their expected timing
+    const rivalProfile = this.getRivalProfile(username);
+    const expectedStayTime = rivalProfile.samples.length > 0 
+      ? rivalProfile.samples[rivalProfile.samples.length - 1]  // Use most recent
+      : 1800; // Default 1800ms if no history
+    
+    console.log(`[WS${this.wsNumber}] 🔍 Starting real-time monitor for ${username}, expected: ${expectedStayTime}ms`);
+    this.addLog(this.wsNumber, `🔍 Monitoring ${username} (expected ${expectedStayTime}ms)`);
+    
+    this.opponentTracking.monitoringRival = { userid, username, expectedStayTime };
+    
+    // Check every 100ms
+    this.opponentTracking.monitorInterval = setInterval(() => {
+      const rival = this.opponentTracking.activeUsers.get(userid);
+      
+      if (!rival) {
+        // Rival left, stop monitoring
+        console.log(`[WS${this.wsNumber}] ⚠️ Rival ${username} left, stopping monitor`);
+        this.stopRealTimeMonitor();
+        return;
+      }
+      
+      const elapsedTime = Date.now() - rival.joinTime;
+      const timeRemaining = expectedStayTime - elapsedTime;
+      
+      // Log every 500ms to avoid spam
+      if (elapsedTime % 500 < 100) {
+        console.log(`[WS${this.wsNumber}] ⏱️ ${username}: ${elapsedTime}ms elapsed, ${timeRemaining}ms remaining`);
+      }
+      
+      // If rival is about to leave (attack window)
+      const attackOffset = rivalProfile.adaptiveOffset || -20;
+      const attackWindow = expectedStayTime + attackOffset; // e.g., 1800 + (-20) = 1780ms
+      
+      if (elapsedTime >= attackWindow && !this.userFound) {
+        console.log(`[WS${this.wsNumber}] 🎯 PROACTIVE TRIGGER! Attacking ${username} NOW at ${elapsedTime}ms`);
+        this.addLog(this.wsNumber, `🎯 Proactive attack at ${elapsedTime}ms`);
+        
+        // Trigger attack if we haven't already
+        this.triggerProactiveAttack(userid, username);
+        this.stopRealTimeMonitor();
+      }
+    }, 100); // Check every 100ms
+  }
+  
+  // PROACTIVE: Stop real-time monitoring
+  stopRealTimeMonitor() {
+    if (this.opponentTracking.monitorInterval) {
+      clearInterval(this.opponentTracking.monitorInterval);
+      this.opponentTracking.monitorInterval = null;
+      this.opponentTracking.monitoringRival = null;
+      console.log(`[WS${this.wsNumber}] ⏹️ Stopped real-time monitor`);
+    }
+  }
+  
+  // PROACTIVE: Trigger attack based on real-time monitoring
+  triggerProactiveAttack(userid, username) {
+    // Only attack if we're in AI mode and haven't found a target yet
+    if (!this.aiMode.enabled || this.userFound) {
+      console.log(`[WS${this.wsNumber}] ⚠️ Proactive attack skipped (aiMode=${this.aiMode.enabled}, userFound=${this.userFound})`);
+      return;
+    }
+    
+    // Set target
+    this.userFound = true;
+    this.useridattack = userid;
+    this.useridtarget = userid;
+    this.status = "attack";
+    
+    console.log(`[WS${this.wsNumber}] ⚡ Proactive attack triggered for ${username}`);
+    this.addLog(this.wsNumber, `⚡ Proactive: Attacking ${username}`);
+    
+    // Attack immediately (no setTimeout needed, we're already at the right time)
+    if (this.ws && this.ws.readyState === this.ws.OPEN) {
+      this.ws.send(`ACTION 3 ${userid}\r\n`);
+      this.addLog(this.wsNumber, `⚔️ Attacked ${username}!`);
+      
+      // Track for AI
+      if (this.aiMode.enabled) {
+        const rival = this.opponentTracking.activeUsers.get(userid);
+        const attackTiming = Date.now() - rival.joinTime;
+        this.aiMode.lastAttackTiming = attackTiming;
+        this.aiMode.pendingResult = true;
+      }
+    }
   }
   
   // Track opponent LOGOUT (PART or SLEEP message)
@@ -637,6 +739,11 @@ class FinalCompleteGameLogic {
     
     // Remove from active users
     this.opponentTracking.activeUsers.delete(userid);
+    
+    // PROACTIVE: Stop monitoring if this was the monitored rival
+    if (this.opponentTracking.monitoringRival && this.opponentTracking.monitoringRival.userid === userid) {
+      this.stopRealTimeMonitor();
+    }
   }
   
   // Add opponent timing sample (from login/logout or competition results)
