@@ -692,13 +692,15 @@ class FinalCompleteGameLogic {
     
     console.log(`[WS${this.wsNumber}] AI: phase=${this.aiMode.phase}, samples=${this.opponentTracking.samples.length}, optimalTiming=${this.aiMode.optimalTiming}`);
     
-    // WAIT FOR SAMPLES: If in fast_discovery and not enough samples yet, use config timing
+    // WAIT FOR SAMPLES: If in fast_discovery and not enough samples yet, use SAFE timing
     if (this.aiMode.phase === 'fast_discovery' && this.opponentTracking.samples.length < this.aiMode.autoRangeSamples) {
-      const configTiming = parseInt(this.config[`attack${this.wsNumber}`] || 1940);
+      // Use 1975ms (safe timing) to ensure we see opponent PART/SLEEP
+      // This is late enough to capture most opponent timings
+      const safeTiming = 1975;
       const sampleCount = this.opponentTracking.samples.length;
-      console.log(`[WS${this.wsNumber}] AI: Collecting samples (${sampleCount}/${this.aiMode.autoRangeSamples}) - using config timing ${configTiming}ms`);
-      this.addLog(this.wsNumber, `📊 AI: ${sampleCount}/${this.aiMode.autoRangeSamples} samples - using ${configTiming}ms`);
-      return configTiming;
+      console.log(`[WS${this.wsNumber}] AI: Collecting samples (${sampleCount}/${this.aiMode.autoRangeSamples}) - using SAFE timing ${safeTiming}ms`);
+      this.addLog(this.wsNumber, `📊 AI: ${sampleCount}/${this.aiMode.autoRangeSamples} samples - using ${safeTiming}ms (safe mode)`);
+      return safeTiming;
     }
     
     // Increment round counter for range updates
