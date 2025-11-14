@@ -214,19 +214,24 @@ class FinalCompleteGameLogic {
   // ========================================
   
   getOpponentDataFilePath() {
-    return path.join(process.cwd(), `opponent_data_ws${this.wsNumber}.json`);
+    const filePath = path.join(process.cwd(), `opponent_data_ws${this.wsNumber}.json`);
+    console.log(`[WS${this.wsNumber}] 📁 File path: ${filePath}`);
+    return filePath;
   }
   
   loadOpponentData() {
     try {
       const filePath = this.getOpponentDataFilePath();
+      console.log(`[WS${this.wsNumber}] 📂 Loading from: ${filePath}`);
       if (fs.existsSync(filePath)) {
         const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-        console.log(`[WS${this.wsNumber}] 📂 Loaded opponent data: ${data.records.length} records`);
+        console.log(`[WS${this.wsNumber}] ✅ Loaded opponent data: ${data.records.length} records`);
         return data;
+      } else {
+        console.log(`[WS${this.wsNumber}] ℹ️ File doesn't exist yet, creating new data structure`);
       }
     } catch (error) {
-      console.error(`[WS${this.wsNumber}] Error loading opponent data:`, error);
+      console.error(`[WS${this.wsNumber}] ❌ Error loading opponent data:`, error);
     }
     return { records: [], roundCounter: 0, lastCleanup: Date.now() };
   }
@@ -234,15 +239,21 @@ class FinalCompleteGameLogic {
   saveOpponentData(data) {
     try {
       const filePath = this.getOpponentDataFilePath();
+      console.log(`[WS${this.wsNumber}] 💾 Saving to: ${filePath}`);
+      console.log(`[WS${this.wsNumber}] 💾 Data: ${data.records.length} records`);
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
-      console.log(`[WS${this.wsNumber}] 💾 Saved opponent data: ${data.records.length} records`);
+      console.log(`[WS${this.wsNumber}] ✅ Saved successfully!`);
     } catch (error) {
-      console.error(`[WS${this.wsNumber}] Error saving opponent data:`, error);
+      console.error(`[WS${this.wsNumber}] ❌ Error saving opponent data:`, error);
+      console.error(`[WS${this.wsNumber}] ❌ Error details:`, error.message);
     }
   }
   
   addOpponentRecord(username, userid, loginTime, logoutTime, waitingTime) {
+    console.log(`[WS${this.wsNumber}] 📝 addOpponentRecord called: ${username}, ${waitingTime}ms`);
+    
     const data = this.loadOpponentData();
+    console.log(`[WS${this.wsNumber}] 📊 Current data: ${data.records.length} records`);
     
     const record = {
       username: username,
@@ -254,6 +265,7 @@ class FinalCompleteGameLogic {
       round: data.roundCounter
     };
     
+    console.log(`[WS${this.wsNumber}] ➕ Adding record:`, JSON.stringify(record));
     data.records.push(record);
     
     // Clean old records every 5 rounds (check BEFORE incrementing)
@@ -268,43 +280,31 @@ class FinalCompleteGameLogic {
     
     data.roundCounter++;
     
+    console.log(`[WS${this.wsNumber}] 💾 About to save ${data.records.length} records...`);
     this.saveOpponentData(data);
     
     // Calculate optimal timing from recent records
+    console.log(`[WS${this.wsNumber}] 🧮 Calculating optimal from file...`);
     this.calculateOptimalFromFile();
     
-    console.log(`[WS${this.wsNumber}] 📝 Added record: ${username} waited ${waitingTime}ms (total: ${data.records.length})`);
+    console.log(`[WS${this.wsNumber}] ✅ Record added successfully: ${username} waited ${waitingTime}ms (total: ${data.records.length})`);
     this.addLog(this.wsNumber, `📝 ${username}: ${waitingTime}ms`);
   }
   
   calculateOptimalFromFile() {
     const data = this.loadOpponentData();
     
-    if (data.records.length < 3) {
-      console.log(`[WS${this.wsNumber}] ⏳ Need more data: ${data.records.length}/3 records`);
+    if (data.records.length < 1) {
+      console.log(`[WS${this.wsNumber}] ⏳ No data yet`);
       return;
     }
     
-    // CONSERVATIVE STRATEGY: Use last 3 records (most recent)
-    // This adapts FAST to opponent changes
-    const recentRecords = data.records.slice(-3);
-    const recentTimes = recentRecords.map(r => r.waitingTime);
-    const recentMin = Math.min(...recentTimes);
-    const recentMax = Math.max(...recentTimes);
-    const recentAvg = Math.round(recentTimes.reduce((a, b) => a + b, 0) / recentTimes.length);
+    // SIMPLE: Use LATEST record (most recent rival)
+    const latestRecord = data.records[data.records.length - 1];
+    const rivalTime = latestRecord.waitingTime;
     
-    // KEY STRATEGY: Use MINIMUM of recent times
-    // This ensures we're always faster than the fastest recent opponent
-    // = We DON'T GET KICKED!
-    const targetTiming = recentMin;
-    
-    // Cap at 2100ms maximum
-    const cappedTarget = Math.min(targetTiming, 2100);
-    
-    // CONSERVATIVE BUFFER: Attack 30ms BEFORE the fastest opponent
-    // This gives us margin of safety
-    const safetyBuffer = 30;
-    const optimalTiming = Math.max(50, cappedTarget - safetyBuffer);
+    // Attack 20ms BEFORE rival
+    const optimalTiming = Math.max(50, Math.min(rivalTime - 20, 2100));
     
     // Update AI mode
     if (this.aiMode && this.aiMode.enabled) {
@@ -312,20 +312,12 @@ class FinalCompleteGameLogic {
       this.aiMode.edgeTiming = optimalTiming;
       this.aiMode.phase = 'adaptive';
       this.aiMode.edgeFound = true;
-      
-      this.opponentTracking.detectedMin = recentMin;
-      this.opponentTracking.detectedMax = recentMax;
     }
     
-    console.log(`[WS${this.wsNumber}] 📊 CONSERVATIVE strategy (last 3 records):`);
-    console.log(`[WS${this.wsNumber}]   - Recent times: [${recentTimes.join(', ')}]ms`);
-    console.log(`[WS${this.wsNumber}]   - Min: ${recentMin}ms, Max: ${recentMax}ms, Avg: ${recentAvg}ms`);
-    console.log(`[WS${this.wsNumber}]   - Target: ${recentMin}ms (fastest opponent)`);
-    console.log(`[WS${this.wsNumber}]   - Optimal: ${optimalTiming}ms (${recentMin} - ${safetyBuffer}ms)`);
-    console.log(`[WS${this.wsNumber}]   - Strategy: Beat fastest opponent = DON'T GET KICKED!`);
+    console.log(`[WS${this.wsNumber}] 📊 SIMPLE: Latest rival time: ${rivalTime}ms`);
+    console.log(`[WS${this.wsNumber}]   → Use: ${optimalTiming}ms (${rivalTime} - 20ms)`);
     
-    this.addLog(this.wsNumber, `📊 Last 3: [${recentTimes.join(', ')}]ms → Use ${optimalTiming}ms`);
-    this.addLog(this.wsNumber, `🛡️ Strategy: Beat fastest (${recentMin}ms) = Safe!`);
+    this.addLog(this.wsNumber, `📊 Rival: ${rivalTime}ms → Use ${optimalTiming}ms`);
   }
   
   // Process remaining opponents when we QUIT early (before seeing their PART/SLEEP)
@@ -465,23 +457,11 @@ class FinalCompleteGameLogic {
     console.log(`[WS${this.wsNumber}] 🔍 initAIMode: Found ${recordCount} records in file`);
     this.addLog(this.wsNumber, `🤖 AI Mode: ENABLED`);
     
-    if (recordCount >= 3) {
-      // We have enough data! Calculate optimal from file
-      console.log(`[WS${this.wsNumber}] ✅ Have ${recordCount} records - calculating optimal`);
-      this.addLog(this.wsNumber, `✅ Have ${recordCount} records - calculating optimal`);
+    if (recordCount >= 1) {
+      // We have data! Use latest immediately
+      console.log(`[WS${this.wsNumber}] ✅ Have ${recordCount} records - using latest`);
+      this.addLog(this.wsNumber, `✅ Have ${recordCount} records - using latest`);
       this.calculateOptimalFromFile();
-      return;
-    }
-    
-    // Check if we have existing samples from previous connection (fallback)
-    const existingSamples = this.opponentTracking.samples || [];
-    const sampleCount = existingSamples.length;
-    
-    if (sampleCount >= this.aiMode.autoRangeSamples) {
-      // We have enough samples! Use them immediately
-      console.log(`[WS${this.wsNumber}] ✅ Have ${sampleCount} samples - narrowing range`);
-      this.addLog(this.wsNumber, `✅ Have ${sampleCount} samples - using them!`);
-      this.narrowRangeFromSamples();
       return;
     }
     
@@ -705,14 +685,11 @@ class FinalCompleteGameLogic {
     
     console.log(`[WS${this.wsNumber}] AI: phase=${this.aiMode.phase}, samples=${this.opponentTracking.samples.length}, optimalTiming=${this.aiMode.optimalTiming}`);
     
-    // WAIT FOR SAMPLES: If in fast_discovery and not enough samples yet, use SAFE timing
-    if (this.aiMode.phase === 'fast_discovery' && this.opponentTracking.samples.length < this.aiMode.autoRangeSamples) {
-      // Use 1975ms (safe timing) to ensure we see opponent PART/SLEEP
-      // This is late enough to capture most opponent timings
-      const safeTiming = 1975;
-      const sampleCount = this.opponentTracking.samples.length;
-      console.log(`[WS${this.wsNumber}] AI: Collecting samples (${sampleCount}/${this.aiMode.autoRangeSamples}) - using SAFE timing ${safeTiming}ms`);
-      this.addLog(this.wsNumber, `📊 AI: ${sampleCount}/${this.aiMode.autoRangeSamples} samples - using ${safeTiming}ms (safe mode)`);
+    // WAIT FOR FIRST SAMPLE: Use 1940ms to collect first rival time
+    if (this.aiMode.phase === 'fast_discovery') {
+      const safeTiming = 1940;
+      console.log(`[WS${this.wsNumber}] AI: No data yet - using ${safeTiming}ms to collect rival time`);
+      this.addLog(this.wsNumber, `📊 AI: Collecting rival time - using ${safeTiming}ms`);
       return safeTiming;
     }
     
@@ -748,48 +725,12 @@ class FinalCompleteGameLogic {
     this.aiMode.totalAttempts++;
     if (success) {
       this.aiMode.totalSuccesses++;
-      this.aiMode.consecutiveSuccesses++;
-      this.aiMode.consecutiveFailures = 0; // Reset failure counter
     } else {
       this.aiMode.totalFailures++;
-      this.aiMode.consecutiveSuccesses = 0;  // Reset on failure
-      this.aiMode.consecutiveFailures = (this.aiMode.consecutiveFailures || 0) + 1;
     }
     this.aiMode.overallSuccessRate = this.aiMode.totalSuccesses / this.aiMode.totalAttempts;
     
-    // FAST ADAPTATION: If we got kicked even ONCE
-    if (!success && this.aiMode.phase === 'adaptive') {
-      console.log(`[WS${this.wsNumber}] 🚨 GOT KICKED! Rival is faster - adapting immediately!`);
-      this.addLog(this.wsNumber, `🚨 Got kicked! Adapting now...`);
-      
-      // IMMEDIATE RESPONSE: Reduce timing by 150ms
-      const emergencyTiming = Math.max(50, this.aiMode.optimalTiming - 150);
-      this.aiMode.optimalTiming = emergencyTiming;
-      this.aiMode.edgeTiming = emergencyTiming;
-      
-      // Go to safe mode for 1 round to collect new data
-      this.aiMode.phase = 'fast_discovery';
-      this.aiMode.emergencyMode = true;
-      this.aiMode.emergencyRounds = 0;
-      
-      console.log(`[WS${this.wsNumber}] 🛡️ Emergency: Reduced to ${emergencyTiming}ms, collecting fresh data`);
-      this.addLog(this.wsNumber, `🛡️ Using ${emergencyTiming}ms, collecting data`);
-      
-      return;
-    }
-    
-    // Exit emergency mode after 1 successful round
-    if (this.aiMode.emergencyMode && success) {
-      this.aiMode.emergencyRounds = (this.aiMode.emergencyRounds || 0) + 1;
-      if (this.aiMode.emergencyRounds >= 1) {
-        this.aiMode.emergencyMode = false;
-        this.aiMode.phase = 'adaptive';
-        // Recalculate from file with new data
-        this.calculateOptimalFromFile();
-        console.log(`[WS${this.wsNumber}] ✅ Emergency ended - recalculated optimal`);
-        this.addLog(this.wsNumber, `✅ Adapted! New optimal: ${this.aiMode.optimalTiming}ms`);
-      }
-    }
+    console.log(`[WS${this.wsNumber}] AI Result: ${timing}ms → ${success ? 'WIN' : 'LOSE'} (${Math.round(this.aiMode.overallSuccessRate * 100)}%)`);
     
     // Record timing-specific result
     if (!this.aiMode.timingResults[timing]) {
