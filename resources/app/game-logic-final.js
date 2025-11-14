@@ -84,8 +84,8 @@ class FinalCompleteGameLogic {
       feedbackStep: 15,             // 15ms adjustments (fast adaptation)
       quickStart: true,             // Start immediately with wide range
       initialMin: 1500,             // Wide initial range minimum
-      initialMax: 1975,             // HARD CAP: Never exceed 1975ms
-      maxCap: 1975,                 // HARD MAXIMUM CAP (user requirement)
+      initialMax: 2100,             // HARD CAP: Never exceed 2100ms
+      maxCap: 2100,                 // HARD MAXIMUM CAP (user requirement)
       safetyBuffer: 10,             // 10ms buffer on edge
       targetSuccessRate: 0.90,      // 90% success rate (faster than 95%)
       edgeTestFrequency: 10,        // Test edge 10% of time
@@ -97,8 +97,8 @@ class FinalCompleteGameLogic {
       
       // Binary search state
       searchMin: 1500,
-      searchMax: 1975,              // Start with hard cap
-      currentTestTiming: 1737,      // Midpoint of initial range (1500+1975)/2
+      searchMax: 2100,              // Start with hard cap
+      currentTestTiming: 1800,      // Midpoint of initial range (1500+2100)/2
       
       // Timing candidates and results
       timingResults: {},            // { timing: {attempts, successes, failures, rate} }
@@ -134,7 +134,12 @@ class FinalCompleteGameLogic {
       detectedMax: null,
       lastUpdate: 0,
       lastRangeCheck: 0,
-      roundCounter: 0               // Count rounds for range update frequency
+      roundCounter: 0,              // Count rounds for range update frequency
+      
+      // User tracking for login/logout detection (DETERMINISTIC)
+      activeUsers: new Map(),       // Map<userid, {username, loginTime, loginRoundStart}>
+      loginLogoutSamples: [],       // [{timing, type: 'login'|'logout', timestamp}]
+      roundStartTime: 0             // Start time of current round (for LOGIN timing)
     };
   }
 
@@ -311,7 +316,54 @@ class FinalCompleteGameLogic {
     console.log(`  - Updates: Every ${this.aiMode.rangeUpdateFrequency} rounds`);
   }
   
-  // Add opponent timing sample (called when opponent appears)
+  // Track opponent LOGIN (353 or JOIN message)
+  trackOpponentLogin(userid, username) {
+    if (!this.opponentTracking.enabled) return;
+    if (userid === this.useridg) return;  // Skip self
+    
+    const now = Date.now();
+    const roundElapsed = now - this.opponentTracking.roundStartTime;
+    
+    // If user already tracked, skip
+    if (this.opponentTracking.activeUsers.has(userid)) return;
+    
+    // Add to active users
+    this.opponentTracking.activeUsers.set(userid, {
+      username: username,
+      loginTime: now,
+      loginRoundStart: this.opponentTracking.roundStartTime,
+      loginTiming: roundElapsed  // Time since round started
+    });
+    
+    // Add login timing sample
+    this.addOpponentSample(roundElapsed);
+    
+    this.addLog(this.wsNumber, `🟢 Opponent LOGIN: ${username} at ${roundElapsed}ms`);
+    console.log(`[WS${this.wsNumber}] Opponent LOGIN: ${username} (${userid}) at ${roundElapsed}ms into round`);
+  }
+  
+  // Track opponent LOGOUT (PART or SLEEP message)
+  trackOpponentLogout(userid) {
+    if (!this.opponentTracking.enabled) return;
+    
+    const user = this.opponentTracking.activeUsers.get(userid);
+    if (!user) return;  // Not tracked
+    
+    const now = Date.now();
+    const roundElapsed = now - this.opponentTracking.roundStartTime;
+    const activeTime = now - user.loginTime;
+    
+    this.addLog(this.wsNumber, `🔴 Opponent LOGOUT: ${user.username} at ${roundElapsed}ms (active ${Math.round(activeTime/1000)}s)`);
+    console.log(`[WS${this.wsNumber}] Opponent LOGOUT: ${user.username} (${userid}) at ${roundElapsed}ms, was active for ${Math.round(activeTime/1000)}s`);
+    
+    // Add logout timing sample
+    this.addOpponentSample(roundElapsed);
+    
+    // Remove from active users
+    this.opponentTracking.activeUsers.delete(userid);
+  }
+  
+  // Add opponent timing sample (from login/logout or competition results)
   addOpponentSample(timing) {
     if (!this.opponentTracking.enabled) return;
     
@@ -1966,6 +2018,9 @@ class FinalCompleteGameLogic {
       
       if (!userid || !username) return;
       
+      // OPPONENT TRACKING: Track login timing
+      this.trackOpponentLogin(userid, username);
+      
       // Skip self
       if (userid === this.useridg) return;
       
@@ -2270,9 +2325,8 @@ class FinalCompleteGameLogic {
         this.addLog(this.wsNumber, `✅ Success - Imprisoned target!`);
         
         // OPPONENT TRACKING: When we successfully imprison, infer opponent timing
+        // We WON = Opponent was SLOWER than us (or not present)
         if (this.opponentTracking.enabled && this.aiMode.lastAttackTiming) {
-          // We WON at timing X → Opponent was SLOWER than us
-          // Opponent likely used timing between X and X+200ms
           const ourTiming = this.aiMode.lastAttackTiming;
           const inferredMin = ourTiming;
           const inferredMax = ourTiming + 200;
@@ -2301,16 +2355,8 @@ class FinalCompleteGameLogic {
             this.logLearnedTimings();
           }
         }
-      } else if (!snippets[6]?.includes("3s") && this.aiMode.enabled && this.aiMode.lastAttackTiming && this.opponentTracking.enabled) {
-        // No success and no 3s error → Someone else won (opponent was faster)
-        const ourTiming = this.aiMode.lastAttackTiming;
-        const inferredMin = ourTiming - 200;
-        const inferredMax = ourTiming;
-        const inferredOpponentTiming = inferredMin + Math.floor(Math.random() * (inferredMax - inferredMin));
-        
-        this.addOpponentSample(inferredOpponentTiming);
-        console.log(`[WS${this.wsNumber}] Opponent timing inferred: ${inferredOpponentTiming}ms (opponent won, we used ${ourTiming}ms, opponent was faster)`);
       }
+      // NOTE: Opponent wins detection moved to PRISON message handler
 
       const statusText = snippets.slice(1).join(" ").substring(0, 80);
       if (statusText) {
@@ -2437,6 +2483,9 @@ class FinalCompleteGameLogic {
     try {
       const userid = snippets[1];
       
+      // OPPONENT TRACKING: Track logout timing
+      this.trackOpponentLogout(userid);
+      
       // Check if leaving user is the planet founder
       const isFounder = (userid === this.founderUserId);
       
@@ -2529,6 +2578,9 @@ class FinalCompleteGameLogic {
   handleSleepMessage(ws, snippets, text) {
     try {
       const userid = snippets[1] ? snippets[1].replace(/(\r\n|\n|\r)/gm, "") : "";
+      
+      // OPPONENT TRACKING: Track logout timing (sleep = logout)
+      this.trackOpponentLogout(userid);
       
       // Check if sleeping user is the planet founder
       const isFounder = (userid === this.founderUserId);
@@ -2886,6 +2938,12 @@ class FinalCompleteGameLogic {
       const planetInfo = snippets.slice(1).join(" ");
       const plnt = snippets[1];
       
+      // OPPONENT TRACKING: Mark start of new round for timing calculations
+      if (this.opponentTracking.enabled) {
+        this.opponentTracking.roundStartTime = Date.now();
+        console.log(`[WS${this.wsNumber}] Round start time set for opponent tracking`);
+      }
+      
       // Update current planet and prison status
       this.currentPlanet = plnt;
       this.inPrison = plnt && plnt.slice(0, 6) === "Prison";
@@ -2919,6 +2977,19 @@ class FinalCompleteGameLogic {
         this.inPrison = true;
         this.currentPlanet = "Prison";
         console.log(`[WS${this.wsNumber}] PRISON message detected - setting inPrison=true`);
+        
+        // OPPONENT TRACKING: We got imprisoned = Opponent WON (was FASTER than us!)
+        if (this.opponentTracking.enabled && this.aiMode.lastAttackTiming) {
+          const ourTiming = this.aiMode.lastAttackTiming;
+          // Opponent was FASTER than us - likely between ourTiming-200 and ourTiming
+          const inferredMin = Math.max(1500, ourTiming - 200);
+          const inferredMax = ourTiming;
+          const inferredOpponentTiming = inferredMin + Math.floor(Math.random() * (inferredMax - inferredMin));
+          
+          this.addOpponentSample(inferredOpponentTiming);
+          this.addLog(this.wsNumber, `🔴 Opponent imprisoned us! They were faster`);
+          console.log(`[WS${this.wsNumber}] Opponent timing inferred: ${inferredOpponentTiming}ms (we got imprisoned at ${ourTiming}ms, opponent was faster)`);
+        }
         
         if (this.config.autorelease) {
           this.addLog(this.wsNumber, `🔓 Prison status detected - escaping`);
