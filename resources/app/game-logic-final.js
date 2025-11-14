@@ -115,16 +115,23 @@ class FinalCompleteGameLogic {
       totalAttempts: 0,
       totalSuccesses: 0,
       totalFailures: 0,
+      totalKicked: 0,               // NEW: Track getting kicked separately
       overallSuccessRate: 0,
-      consecutiveSuccesses: 0,      // Track consecutive successes for feedback
+      consecutiveSuccesses: 0,
+      consecutiveFailures: 0,
       
       // Adaptive testing
       lastEdgeTest: 0,
-      edgeTestResults: [],          // Recent edge test outcomes
+      edgeTestResults: [],
       
       // Track last attack for result recording
       lastAttackTiming: null,
-      pendingResult: false          // Whether we're waiting for attack result
+      pendingResult: false,
+      lastResultType: null,         // NEW: 'win', '3s_error', 'kicked'
+      
+      // IMPROVED: Adaptive offset (per-rival, but global fallback)
+      adaptiveOffset: -20,          // Start at -20ms before rival time
+      offsetStats: new Map()        // Track success rate per offset: Map<offset, {wins, losses, rate}>
     };
     
     // Opponent Tracking for Auto-Range Detection
@@ -142,6 +149,10 @@ class FinalCompleteGameLogic {
       activeUsers: new Map(),       // Map<userid, {username, loginTime, loginRoundStart}>
       loginLogoutSamples: [],       // [{timing, type: 'login'|'logout', timestamp}]
       roundStartTime: 0,            // Start time of current round (for LOGIN timing)
+      
+      // IMPROVED: Per-rival profiles (memory-based)
+      rivalProfiles: new Map(),     // Map<username, {samples: [], adaptiveOffset: -20, lastSeen: timestamp, stats: {}}>
+      currentRival: null,           // Current rival we're facing
       
       // Memory-based storage (fallback if file system fails)
       memoryStorage: { records: [], roundCounter: 0, lastCleanup: Date.now() },
@@ -495,8 +506,51 @@ class FinalCompleteGameLogic {
     
     this.aiMode.phase = 'fast_discovery';
     console.log(`[WS${this.wsNumber}] AI Mode ready - will attack 20ms before rival logout`);
+  }
+  
+  // IMPROVED: Get or create rival profile
+  getRivalProfile(username) {
+    if (!this.opponentTracking.rivalProfiles.has(username)) {
+      this.opponentTracking.rivalProfiles.set(username, {
+        username: username,
+        samples: [],              // Recent timing samples
+        adaptiveOffset: -20,      // Start at -20ms
+        lastSeen: Date.now(),
+        totalRounds: 0,
+        wins: 0,
+        losses: 0,
+        kicked: 0,
+        winRate: 0
+      });
+      console.log(`[WS${this.wsNumber}] 🆕 Created profile for rival: ${username}`);
+    }
+    return this.opponentTracking.rivalProfiles.get(username);
+  }
+  
+  // IMPROVED: Update rival profile with new sample
+  updateRivalProfile(username, stayDuration) {
+    const profile = this.getRivalProfile(username);
     
-
+    // Add sample (keep last 5 samples only)
+    profile.samples.push(stayDuration);
+    if (profile.samples.length > 5) {
+      profile.samples.shift();
+    }
+    
+    profile.lastSeen = Date.now();
+    
+    // Detect pattern change (if last 2 samples differ by >300ms, reset offset)
+    if (profile.samples.length >= 2) {
+      const recent = profile.samples.slice(-2);
+      const diff = Math.abs(recent[0] - recent[1]);
+      if (diff > 300) {
+        console.log(`[WS${this.wsNumber}] ⚠️ ${username} pattern changed! ${recent[0]}ms → ${recent[1]}ms (diff: ${diff}ms)`);
+        profile.adaptiveOffset = -20; // Reset to default
+        this.addLog(this.wsNumber, `⚠️ ${username} changed pattern - resetting`);
+      }
+    }
+    
+    console.log(`[WS${this.wsNumber}] 📊 ${username} profile: samples=[${profile.samples.join(',')}]ms, offset=${profile.adaptiveOffset}ms`);
   }
   
   // Track opponent LOGIN (353 or JOIN message)
@@ -566,15 +620,19 @@ class FinalCompleteGameLogic {
       // Valid sample - opponent stayed within reasonable time
       this.addOpponentSample(stayDuration);
       
+      // IMPROVED: Update rival-specific profile
+      this.updateRivalProfile(user.username, stayDuration);
+      this.opponentTracking.currentRival = user.username; // Track who we're facing
+      
       // Save to persistent file
       this.addOpponentRecord(user.username, userid, user.joinTime, now, stayDuration);
       
-      this.addLog(this.wsNumber, `🔴 Opponent LOGOUT: ${user.username} stayed ${stayDuration}ms`);
-      console.log(`[WS${this.wsNumber}] ✅ SAMPLE COLLECTED: ${user.username} stayed ${stayDuration}ms (JOIN→PART/SLEEP)`);
+      this.addLog(this.wsNumber, `🔴 ${user.username} LOGOUT: ${stayDuration}ms`);
+      console.log(`[WS${this.wsNumber}] ✅ SAMPLE: ${user.username} stayed ${stayDuration}ms`);
     } else {
       // Invalid - stayed too long (multi-round) or negative time
       console.log(`[WS${this.wsNumber}] ⏭️ Skipping ${user.username}: stayed ${stayDuration}ms (invalid)`);
-      this.addLog(this.wsNumber, `⚠️ Invalid sample: ${user.username} stayed ${stayDuration}ms`);
+      this.addLog(this.wsNumber, `⚠️ Invalid: ${user.username} ${stayDuration}ms`);
     }
     
     // Remove from active users
@@ -703,61 +761,97 @@ class FinalCompleteGameLogic {
       return safeTiming;
     }
     
-    // ADAPTIVE STRATEGY:
-    // 1. Get most recent rival time (this is what they just did)
-    // 2. Start by attacking 20ms before their time
-    // 3. If 3s error → we were too early → add +5ms
-    // 4. If success → we were good → try -5ms to get closer
-    // 5. Always use the LATEST rival time and adapt our offset to it
+    // IMPROVED: Use rival-specific profile if available
+    const currentRival = this.opponentTracking.currentRival;
+    let rivalProfile = null;
+    let adaptiveOffset = this.aiMode.adaptiveOffset || -20;
+    let latestRivalTime = samples[samples.length - 1];
     
-    const latestRivalTime = samples[samples.length - 1];
-    
-    // Initialize adaptive offset if not exists (starts at -20ms)
-    if (this.aiMode.adaptiveOffset === undefined) {
-      this.aiMode.adaptiveOffset = -20; // Start 20ms before rival
+    if (currentRival && this.opponentTracking.rivalProfiles.has(currentRival)) {
+      rivalProfile = this.opponentTracking.rivalProfiles.get(currentRival);
+      
+      // Use rival's specific offset and most recent sample
+      if (rivalProfile.samples.length > 0) {
+        latestRivalTime = rivalProfile.samples[rivalProfile.samples.length - 1];
+        adaptiveOffset = rivalProfile.adaptiveOffset;
+        
+        console.log(`[WS${this.wsNumber}] 🎯 Using ${currentRival} profile: ${latestRivalTime}ms, offset=${adaptiveOffset}ms`);
+        this.addLog(this.wsNumber, `🎯 ${currentRival}: ${latestRivalTime}ms (${adaptiveOffset}ms)`);
+      }
+    } else {
+      // No specific rival - use global samples and offset
+      console.log(`[WS${this.wsNumber}] 🎯 No rival profile - using global: ${latestRivalTime}ms, offset=${adaptiveOffset}ms`);
     }
     
     // Calculate attack timing: rival's time + our adaptive offset
-    const attackTiming = Math.max(100, latestRivalTime + this.aiMode.adaptiveOffset);
-    
-    console.log(`[WS${this.wsNumber}] AI: Rival=${latestRivalTime}ms, offset=${this.aiMode.adaptiveOffset}ms → Attack at ${attackTiming}ms`);
-    this.addLog(this.wsNumber, `🎯 AI: Rival ${latestRivalTime}ms (${this.aiMode.adaptiveOffset}ms) → Attack ${attackTiming}ms`);
+    const attackTiming = Math.max(100, latestRivalTime + adaptiveOffset);
     
     return attackTiming;
   }
   
-  // Record AI attack result
-  recordAIResult(timing, success) {
+  // IMPROVED: Record AI attack result with type (win, 3s_error, kicked)
+  recordAIResult(timing, success, resultType = null) {
     if (!this.aiMode.enabled) return;
     
-    // Initialize adaptive offset if not exists
-    if (this.aiMode.adaptiveOffset === undefined) {
-      this.aiMode.adaptiveOffset = -20;
+    const currentRival = this.opponentTracking.currentRival;
+    let rivalProfile = null;
+    
+    // Get rival profile if available
+    if (currentRival && this.opponentTracking.rivalProfiles.has(currentRival)) {
+      rivalProfile = this.opponentTracking.rivalProfiles.get(currentRival);
+      rivalProfile.totalRounds++;
     }
     
     // Update overall stats
     this.aiMode.totalAttempts++;
+    
     if (success) {
       this.aiMode.totalSuccesses++;
+      this.aiMode.consecutiveFailures = 0;
+      if (rivalProfile) rivalProfile.wins++;
       
-      // SUCCESS (no 3s error) → We can try attacking EARLIER (closer to rival time)
-      // Try -5ms to get even closer
-      const oldOffset = this.aiMode.adaptiveOffset;
-      this.aiMode.adaptiveOffset -= 5; // Get 5ms closer (more aggressive)
+      // SUCCESS → Try attacking EARLIER (closer to rival time) by -5ms
+      const oldOffset = rivalProfile ? rivalProfile.adaptiveOffset : this.aiMode.adaptiveOffset;
+      const newOffset = oldOffset - 5;
       
-      console.log(`[WS${this.wsNumber}] AI: SUCCESS → Trying closer: ${oldOffset}ms → ${this.aiMode.adaptiveOffset}ms`);
-      this.addLog(this.wsNumber, `✅ Success → Trying ${this.aiMode.adaptiveOffset}ms (closer by 5ms)`);
+      if (rivalProfile) {
+        rivalProfile.adaptiveOffset = newOffset;
+        rivalProfile.winRate = rivalProfile.wins / rivalProfile.totalRounds;
+      } else {
+        this.aiMode.adaptiveOffset = newOffset;
+      }
+      
+      console.log(`[WS${this.wsNumber}] ✅ WIN → Closer: ${oldOffset}ms → ${newOffset}ms`);
+      this.addLog(this.wsNumber, `✅ Win → ${newOffset}ms (closer)`);
       
     } else {
       this.aiMode.totalFailures++;
+      this.aiMode.consecutiveFailures = (this.aiMode.consecutiveFailures || 0) + 1;
+      if (rivalProfile) rivalProfile.losses++;
       
-      // FAILURE (3s error) → We attacked too EARLY → Need to attack LATER
-      // Add +5ms to back off
-      const oldOffset = this.aiMode.adaptiveOffset;
-      this.aiMode.adaptiveOffset += 5; // Back off 5ms (less aggressive)
+      // Determine if kicked or 3s error
+      const isKicked = (resultType === 'kicked');
+      if (isKicked) {
+        this.aiMode.totalKicked++;
+        if (rivalProfile) rivalProfile.kicked++;
+      }
       
-      console.log(`[WS${this.wsNumber}] AI: 3s ERROR → Backing off: ${oldOffset}ms → ${this.aiMode.adaptiveOffset}ms`);
-      this.addLog(this.wsNumber, `⚠️ 3s error → Trying ${this.aiMode.adaptiveOffset}ms (safer by 5ms)`);
+      // KICKED → We were too LATE → Attack EARLIER by -50ms (aggressive correction)
+      // 3S ERROR → We were too EARLY → Attack LATER by +5ms (gentle correction)
+      const oldOffset = rivalProfile ? rivalProfile.adaptiveOffset : this.aiMode.adaptiveOffset;
+      const adjustment = isKicked ? -50 : +5;
+      const newOffset = oldOffset + adjustment;
+      
+      if (rivalProfile) {
+        rivalProfile.adaptiveOffset = newOffset;
+        rivalProfile.winRate = rivalProfile.wins / rivalProfile.totalRounds;
+      } else {
+        this.aiMode.adaptiveOffset = newOffset;
+      }
+      
+      const reason = isKicked ? 'KICKED (too late)' : '3S ERROR (too early)';
+      console.log(`[WS${this.wsNumber}] ❌ ${reason} → ${oldOffset}ms → ${newOffset}ms`);
+      this.addLog(this.wsNumber, `❌ ${reason} → ${newOffset}ms`);
     }
     
     this.aiMode.overallSuccessRate = this.aiMode.totalSuccesses / this.aiMode.totalAttempts;
@@ -2523,9 +2617,9 @@ class FinalCompleteGameLogic {
         this.threesec = true;
         this.consecutiveErrors++;  // Track for adaptive step size
         
-        // AI Mode: Record FAILURE (we were too slow - 3s error)
+        // AI Mode: Record FAILURE (3s error - we were too EARLY)
         if (this.aiMode.enabled && this.aiMode.pendingResult && this.aiMode.lastAttackTiming) {
-          this.recordAIResult(this.aiMode.lastAttackTiming, false);
+          this.recordAIResult(this.aiMode.lastAttackTiming, false, '3s_error');
           this.aiMode.pendingResult = false;
         }
         this.consecutiveSuccesses = 0;  // Reset success counter
@@ -2709,6 +2803,19 @@ class FinalCompleteGameLogic {
   handlePartMessage(ws, snippets, text) {
     try {
       const userid = snippets[1];
+      
+      // IMPROVED: Detect if WE got kicked (PART message for self)
+      if (userid === this.useridg) {
+        console.log(`[WS${this.wsNumber}] ❌ WE GOT KICKED! (PART for self)`);
+        this.addLog(this.wsNumber, `❌ Got kicked from planet`);
+        
+        // AI Mode: Record KICKED (we attacked too LATE)
+        if (this.aiMode.enabled && this.aiMode.pendingResult && this.aiMode.lastAttackTiming) {
+          this.recordAIResult(this.aiMode.lastAttackTiming, false, 'kicked');
+          this.aiMode.pendingResult = false;
+        }
+        return;
+      }
       
       // OPPONENT TRACKING: Track logout timing
       this.trackOpponentLogout(userid);
