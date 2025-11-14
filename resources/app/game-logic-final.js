@@ -681,12 +681,25 @@ class FinalCompleteGameLogic {
       return safeTiming;
     }
     
-    // Get the most recent stay duration
-    const recentStayDuration = samples[samples.length - 1];
-    const attackTiming = Math.max(100, recentStayDuration - 20); // Subtract 20ms, minimum 100ms
+    // ADAPTIVE STRATEGY:
+    // 1. Get most recent rival time (this is what they just did)
+    // 2. Start by attacking 20ms before their time
+    // 3. If 3s error → we were too early → add +5ms
+    // 4. If success → we were good → try -5ms to get closer
+    // 5. Always use the LATEST rival time and adapt our offset to it
     
-    console.log(`[WS${this.wsNumber}] AI: Recent stay=${recentStayDuration}ms → Attack at ${attackTiming}ms (stay - 20ms)`);
-    this.addLog(this.wsNumber, `🎯 AI: Rival stayed ${recentStayDuration}ms → Attack ${attackTiming}ms`);
+    const latestRivalTime = samples[samples.length - 1];
+    
+    // Initialize adaptive offset if not exists (starts at -20ms)
+    if (this.aiMode.adaptiveOffset === undefined) {
+      this.aiMode.adaptiveOffset = -20; // Start 20ms before rival
+    }
+    
+    // Calculate attack timing: rival's time + our adaptive offset
+    const attackTiming = Math.max(100, latestRivalTime + this.aiMode.adaptiveOffset);
+    
+    console.log(`[WS${this.wsNumber}] AI: Rival=${latestRivalTime}ms, offset=${this.aiMode.adaptiveOffset}ms → Attack at ${attackTiming}ms`);
+    this.addLog(this.wsNumber, `🎯 AI: Rival ${latestRivalTime}ms (${this.aiMode.adaptiveOffset}ms) → Attack ${attackTiming}ms`);
     
     return attackTiming;
   }
@@ -695,66 +708,38 @@ class FinalCompleteGameLogic {
   recordAIResult(timing, success) {
     if (!this.aiMode.enabled) return;
     
+    // Initialize adaptive offset if not exists
+    if (this.aiMode.adaptiveOffset === undefined) {
+      this.aiMode.adaptiveOffset = -20;
+    }
+    
     // Update overall stats
     this.aiMode.totalAttempts++;
     if (success) {
       this.aiMode.totalSuccesses++;
+      
+      // SUCCESS (no 3s error) → We can try attacking EARLIER (closer to rival time)
+      // Try -5ms to get even closer
+      const oldOffset = this.aiMode.adaptiveOffset;
+      this.aiMode.adaptiveOffset -= 5; // Get 5ms closer (more aggressive)
+      
+      console.log(`[WS${this.wsNumber}] AI: SUCCESS → Trying closer: ${oldOffset}ms → ${this.aiMode.adaptiveOffset}ms`);
+      this.addLog(this.wsNumber, `✅ Success → Trying ${this.aiMode.adaptiveOffset}ms (closer by 5ms)`);
+      
     } else {
       this.aiMode.totalFailures++;
+      
+      // FAILURE (3s error) → We attacked too EARLY → Need to attack LATER
+      // Add +5ms to back off
+      const oldOffset = this.aiMode.adaptiveOffset;
+      this.aiMode.adaptiveOffset += 5; // Back off 5ms (less aggressive)
+      
+      console.log(`[WS${this.wsNumber}] AI: 3s ERROR → Backing off: ${oldOffset}ms → ${this.aiMode.adaptiveOffset}ms`);
+      this.addLog(this.wsNumber, `⚠️ 3s error → Trying ${this.aiMode.adaptiveOffset}ms (safer by 5ms)`);
     }
+    
     this.aiMode.overallSuccessRate = this.aiMode.totalSuccesses / this.aiMode.totalAttempts;
-    
     console.log(`[WS${this.wsNumber}] AI Result: ${timing}ms → ${success ? 'WIN' : 'LOSE'} (${Math.round(this.aiMode.overallSuccessRate * 100)}%)`);
-    
-    // Record timing-specific result
-    if (!this.aiMode.timingResults[timing]) {
-      this.aiMode.timingResults[timing] = {
-        attempts: 0,
-        successes: 0,
-        failures: 0,
-        rate: 0
-      };
-    }
-    
-    const result = this.aiMode.timingResults[timing];
-    result.attempts++;
-    if (success) {
-      result.successes++;
-    } else {
-      result.failures++;
-    }
-    result.rate = result.successes / result.attempts;
-    
-    console.log(`[WS${this.wsNumber}] AI Result: ${timing}ms → ${success ? 'SUCCESS' : 'FAIL'} (${Math.round(result.rate * 100)}% over ${result.attempts} attempts)`);
-    
-    // FEEDBACK ADJUSTMENT (±15ms on errors/successes)
-    if (this.aiMode.feedbackEnabled && (this.aiMode.phase === 'adaptive' || this.aiMode.phase === 'exploitation')) {
-      if (!success) {
-        // 3s error - too fast, slow down
-        const adjusted = timing + this.aiMode.feedbackStep;
-        if (adjusted <= this.aiMode.searchMax) {
-          this.aiMode.optimalTiming = adjusted;
-          this.addLog(this.wsNumber, `⚠️ Feedback: 3s error → Adjusting ${timing}ms to ${adjusted}ms (+${this.aiMode.feedbackStep}ms)`);
-          console.log(`[WS${this.wsNumber}] AI Feedback: Slowed down to ${adjusted}ms due to 3s error`);
-        }
-      } else if (this.aiMode.consecutiveSuccesses >= 5) {
-        // 5 consecutive successes - try faster
-        const adjusted = timing - this.aiMode.feedbackStep;
-        if (adjusted >= this.aiMode.searchMin) {
-          this.aiMode.optimalTiming = adjusted;
-          this.aiMode.consecutiveSuccesses = 0;  // Reset counter
-          this.addLog(this.wsNumber, `✅ Feedback: 5 successes → Testing ${adjusted}ms (-${this.aiMode.feedbackStep}ms)`);
-          console.log(`[WS${this.wsNumber}] AI Feedback: Trying faster at ${adjusted}ms after 5 successes`);
-        }
-      }
-    }
-    
-    // Process based on phase
-    if (this.aiMode.phase === 'fast_discovery' || this.aiMode.phase === 'discovery') {
-      this.processDiscoveryResult(timing, success);
-    } else if (this.aiMode.phase === 'adaptive') {
-      this.processAdaptiveResult(timing, success);
-    }
   }
   
   // Process discovery phase result (Binary search)
