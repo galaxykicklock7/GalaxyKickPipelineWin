@@ -285,16 +285,26 @@ class FinalCompleteGameLogic {
       return;
     }
     
-    // Get all waiting times
-    const waitingTimes = data.records.map(r => r.waitingTime);
-    const maxWaitingTime = Math.max(...waitingTimes);
-    const minWaitingTime = Math.min(...waitingTimes);
+    // CONSERVATIVE STRATEGY: Use last 3 records (most recent)
+    // This adapts FAST to opponent changes
+    const recentRecords = data.records.slice(-3);
+    const recentTimes = recentRecords.map(r => r.waitingTime);
+    const recentMin = Math.min(...recentTimes);
+    const recentMax = Math.max(...recentTimes);
+    const recentAvg = Math.round(recentTimes.reduce((a, b) => a + b, 0) / recentTimes.length);
+    
+    // KEY STRATEGY: Use MINIMUM of recent times
+    // This ensures we're always faster than the fastest recent opponent
+    // = We DON'T GET KICKED!
+    const targetTiming = recentMin;
     
     // Cap at 2100ms maximum
-    const cappedMax = Math.min(maxWaitingTime, 2100);
+    const cappedTarget = Math.min(targetTiming, 2100);
     
-    // Optimal: Attack 10ms before maximum (but not exceeding 2100ms)
-    const optimalTiming = Math.max(50, cappedMax - 10);
+    // CONSERVATIVE BUFFER: Attack 30ms BEFORE the fastest opponent
+    // This gives us margin of safety
+    const safetyBuffer = 30;
+    const optimalTiming = Math.max(50, cappedTarget - safetyBuffer);
     
     // Update AI mode
     if (this.aiMode && this.aiMode.enabled) {
@@ -303,16 +313,19 @@ class FinalCompleteGameLogic {
       this.aiMode.phase = 'adaptive';
       this.aiMode.edgeFound = true;
       
-      this.opponentTracking.detectedMin = minWaitingTime;
-      this.opponentTracking.detectedMax = cappedMax;
+      this.opponentTracking.detectedMin = recentMin;
+      this.opponentTracking.detectedMax = recentMax;
     }
     
-    console.log(`[WS${this.wsNumber}] 📊 Calculated from ${data.records.length} records:`);
-    console.log(`[WS${this.wsNumber}]   - Range: ${minWaitingTime}ms - ${maxWaitingTime}ms`);
-    console.log(`[WS${this.wsNumber}]   - Capped max: ${cappedMax}ms (limit: 2100ms)`);
-    console.log(`[WS${this.wsNumber}]   - Optimal: ${optimalTiming}ms`);
+    console.log(`[WS${this.wsNumber}] 📊 CONSERVATIVE strategy (last 3 records):`);
+    console.log(`[WS${this.wsNumber}]   - Recent times: [${recentTimes.join(', ')}]ms`);
+    console.log(`[WS${this.wsNumber}]   - Min: ${recentMin}ms, Max: ${recentMax}ms, Avg: ${recentAvg}ms`);
+    console.log(`[WS${this.wsNumber}]   - Target: ${recentMin}ms (fastest opponent)`);
+    console.log(`[WS${this.wsNumber}]   - Optimal: ${optimalTiming}ms (${recentMin} - ${safetyBuffer}ms)`);
+    console.log(`[WS${this.wsNumber}]   - Strategy: Beat fastest opponent = DON'T GET KICKED!`);
     
-    this.addLog(this.wsNumber, `📊 Range: ${minWaitingTime}-${cappedMax}ms → Optimal: ${optimalTiming}ms`);
+    this.addLog(this.wsNumber, `📊 Last 3: [${recentTimes.join(', ')}]ms → Use ${optimalTiming}ms`);
+    this.addLog(this.wsNumber, `🛡️ Strategy: Beat fastest (${recentMin}ms) = Safe!`);
   }
   
   // Process remaining opponents when we QUIT early (before seeing their PART/SLEEP)
@@ -736,11 +749,47 @@ class FinalCompleteGameLogic {
     if (success) {
       this.aiMode.totalSuccesses++;
       this.aiMode.consecutiveSuccesses++;
+      this.aiMode.consecutiveFailures = 0; // Reset failure counter
     } else {
       this.aiMode.totalFailures++;
       this.aiMode.consecutiveSuccesses = 0;  // Reset on failure
+      this.aiMode.consecutiveFailures = (this.aiMode.consecutiveFailures || 0) + 1;
     }
     this.aiMode.overallSuccessRate = this.aiMode.totalSuccesses / this.aiMode.totalAttempts;
+    
+    // FAST ADAPTATION: If we got kicked even ONCE
+    if (!success && this.aiMode.phase === 'adaptive') {
+      console.log(`[WS${this.wsNumber}] 🚨 GOT KICKED! Rival is faster - adapting immediately!`);
+      this.addLog(this.wsNumber, `🚨 Got kicked! Adapting now...`);
+      
+      // IMMEDIATE RESPONSE: Reduce timing by 150ms
+      const emergencyTiming = Math.max(50, this.aiMode.optimalTiming - 150);
+      this.aiMode.optimalTiming = emergencyTiming;
+      this.aiMode.edgeTiming = emergencyTiming;
+      
+      // Go to safe mode for 1 round to collect new data
+      this.aiMode.phase = 'fast_discovery';
+      this.aiMode.emergencyMode = true;
+      this.aiMode.emergencyRounds = 0;
+      
+      console.log(`[WS${this.wsNumber}] 🛡️ Emergency: Reduced to ${emergencyTiming}ms, collecting fresh data`);
+      this.addLog(this.wsNumber, `🛡️ Using ${emergencyTiming}ms, collecting data`);
+      
+      return;
+    }
+    
+    // Exit emergency mode after 1 successful round
+    if (this.aiMode.emergencyMode && success) {
+      this.aiMode.emergencyRounds = (this.aiMode.emergencyRounds || 0) + 1;
+      if (this.aiMode.emergencyRounds >= 1) {
+        this.aiMode.emergencyMode = false;
+        this.aiMode.phase = 'adaptive';
+        // Recalculate from file with new data
+        this.calculateOptimalFromFile();
+        console.log(`[WS${this.wsNumber}] ✅ Emergency ended - recalculated optimal`);
+        this.addLog(this.wsNumber, `✅ Adapted! New optimal: ${this.aiMode.optimalTiming}ms`);
+      }
+    }
     
     // Record timing-specific result
     if (!this.aiMode.timingResults[timing]) {
