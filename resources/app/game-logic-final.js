@@ -2267,18 +2267,8 @@ class FinalCompleteGameLogic {
           this.addOpponentSample(inferredOpponentTiming);
           console.log(`[WS${this.wsNumber}] Opponent timing inferred: ${inferredOpponentTiming}ms (we won at ${ourTiming}ms, opponent was slower)`);
         }
-      } else if (!snippets[6]?.includes("3s") && this.aiMode.enabled && this.aiMode.lastAttackTiming && this.opponentTracking.enabled) {
-        // No success and no 3s error → Someone else won (opponent was faster)
-        const ourTiming = this.aiMode.lastAttackTiming;
-        const inferredMin = ourTiming - 200;
-        const inferredMax = ourTiming;
-        const inferredOpponentTiming = inferredMin + Math.floor(Math.random() * (inferredMax - inferredMin));
         
-        this.addOpponentSample(inferredOpponentTiming);
-        console.log(`[WS${this.wsNumber}] Opponent timing inferred: ${inferredOpponentTiming}ms (opponent won, we used ${ourTiming}ms, opponent was faster)`);
-      }
-        
-        // QUICK FIX #2: Only adjust relevant timing based on status
+        // QUICK FIX #2: Only adjust relevant timing based on status (TIMER SHIFT)
         if (this.config.timershift) {
           if (this.status === "attack") {
             this.decrementAttack();  // Only adjust attack timing
@@ -2297,6 +2287,15 @@ class FinalCompleteGameLogic {
             this.logLearnedTimings();
           }
         }
+      } else if (!snippets[6]?.includes("3s") && this.aiMode.enabled && this.aiMode.lastAttackTiming && this.opponentTracking.enabled) {
+        // No success and no 3s error → Someone else won (opponent was faster)
+        const ourTiming = this.aiMode.lastAttackTiming;
+        const inferredMin = ourTiming - 200;
+        const inferredMax = ourTiming;
+        const inferredOpponentTiming = inferredMin + Math.floor(Math.random() * (inferredMax - inferredMin));
+        
+        this.addOpponentSample(inferredOpponentTiming);
+        console.log(`[WS${this.wsNumber}] Opponent timing inferred: ${inferredOpponentTiming}ms (opponent won, we used ${ourTiming}ms, opponent was faster)`);
       }
 
       const statusText = snippets.slice(1).join(" ").substring(0, 80);
