@@ -1,56 +1,75 @@
-2m 31s
-Run duration="60"
-==========================================
-🚀 Backend is Running!
-==========================================
-Tunnel URL: https://best-backend.loca.lt
-Duration: 60 minutes
-Started: 2025-11-09 19:38:35
-Will stop: 2025-11-09 20:38:35
-💡 TIP: Backend is ready but not connected yet.
-   Use /api/configure and /api/connect to start!
-Monitoring status every 60 seconds...
-[19:38:35] Check #1 | ⭕ Ready (waiting for connection) | Time left: 60 min
-[19:39:35] Check #2 | ⭕ Ready (waiting for connection) | Time left: 59 min
-[19:40:35] Check #3 | ⭕ Ready (waiting for connection) | Time left: 58 min
-Error: The operation was canceled.
-0s
-Run echo "Cleaning up..."
-Cleaning up...
-✅ WebSockets disconnected
-Final server logs:
-[WS1] ===== COMPLETE MESSAGE #41 =====
-SLEEP 14358744
-========================================
-[LOG1] ⏸️ Standing now..
-[WS1] MSG#5 PING
-: 
-[WS1] PING received, sent PONG
-[WS1] MSG#42 FULL: JOIN TEAM_SPARROW ``THALA`` 14358744 0 -3 hb/111114_ 0 -76 33 0 hb/b235_ 0 0 33 0 @ 116 27 126 121 778 -1 -1 -1
+
+[LOG1] ΓÜö∩╕Å Imprisoning [l][e][0] (61248897) - blacklist: [l][e][0]
+[WS1] 353 Imprison mode - Sent ACTION 3 command for 61248897
+[LOG1] ≡ƒÜ¬ QUIT after imprison
+[WS1] 353 Kick/Imprison - Checking OffSleep: sleeping=true, connected=true
+[LOG1] ≡ƒöì Check: sleeping=true, connected=true
+[WS1] Γ£à Calling OffSleep from 353 handler
+[LOG1] Γ£à Calling OffSleep (353 handler)
+[WS1] ΓÅ░ OffSleep called - config.connected=true, retryCount=0
+[LOG1] ΓÅ░ OffSleep START (connected=true, retry=0)
+[WS1] Waiting for clean close from QUIT command
+[LOG1] ΓÅ│ Waiting for server to close connection
+[WS1] Creating reconnect timeout (base=1000ms, backoff=1000ms, jitter=162ms, final=1162ms)
+[LOG1] ΓÅ▒∩╕Å Reconnect in 1s (retry 1/10)
+[WS1] Stored reconnectTimeoutId=1108
+[LOG1] ≡ƒÆ╛ Stored timeoutId=1108
+[WS1] MSG#42 850: :You can imprison only
+
 [WS1] ===== COMPLETE MESSAGE #42 =====
-JOIN TEAM_SPARROW ``THALA`` 14358744 0 -3 hb/111114_ 0 -76 33 0 hb/b235_ 0 0 33 0 @ 116 27 126 121 778 -1 -1 -1
+850 :You can imprison only in 3s after you appear on Planet. You can't imprison more often than once in 3s. If you violate one of these rules, you won't be able to imprison users during 15s.
+
 ========================================
-[WS1] JOIN handler - modena=false, kickmode=false, kickall=false
-[WS1] Using Kick/Imprison mode
-[WS1] Skipping action for planet founder 14358744
-[LOG1] Joined channel: TEAM_SPARROW
-[WS1] MSG#43 FOUNDER: 14358744 cr/21
-[WS1] ===== COMPLETE MESSAGE #43 =====
-FOUNDER 14358744 cr/21
-========================================
-[WS1] Planet founder detected: 14358744
-[LOG1] 👑 Planet owner: 14358744
-[WS1] MSG#44 860: 14358744 301190 1;aura/0_7;0;0;33
-[WS1] ===== COMPLETE MESSAGE #44 =====
-860 14358744 301190 1;aura/0_7;0;0;33
-========================================
-[WS1] MSG#45 PING
-: 
-[WS1] ===== COMPLETE MESSAGE #45 =====
-PING
-========================================
-[WS1] PING received, sent PONG
-🛑 AGGRESSIVE DISCONNECT - Stopping ALL processes
-✅ All WebSockets disconnected aggressively
-✅ Cleanup complete
-Thank you for using BEST Backend! 🎉
+
+[WS1] AI Result: 1800ms ΓåÆ FAIL (0% over 1 attempts)
+[LOG1] ≡ƒôè AI: 1800ms ΓåÆ 0% (sample 1/2)
+[LOG1] Γ¥î 3-second error - Too slow!
+[LOG1] Γä╣∩╕Å :You can imprison only in 3s after you appear on Planet. You can't imprison more
+[LOG1] Status: 850 :You can imprison only in 3s after you appear
+WebSocket 1 closed - Code: 1006, Reason:
+[LOG1] ΓÜá∩╕Å Connection closed (code: 1006)
+[WS1] ΓÅ░ OffSleep is handling reconnection - skipping ws.on('close') retry logic        
+[LOG1] ΓÅ░ OffSleep active - skipping auto-retry
+[WS1] Reconnect timeout fired - checking connected=true
+[LOG1] ΓÅ░ Timeout fired! Checking connected=true
+[WS1] Γ£à Proceeding with auto-reconnect
+[LOG1] Γ£à Proceeding with RECONNECT!
+[LOG1] ≡ƒöä Auto-reconnecting WS1 (normal mode)...
+[LOG1] ≡ƒôì Using main code (rotation disabled)
+WebSocket 1 connected
+[LOG1] ≡ƒñû AI Mode: ENABLED with optimal defaults
+[LOG1] ≡ƒÜÇ Quick start: Wide range (1500-2100ms)
+[LOG1] ≡ƒöÆ Hard cap: Maximum 2100ms (will never exceed)
+[LOG1] ≡ƒÄ» Auto-range: Will narrow after 3 samples (9s)
+[LOG1] ΓÜí Fast feedback: ┬▒15ms adjustments
+[LOG1] ≡ƒöä Adaptive: Updates every 5 rounds (15s)
+[WS1] AI Mode initialized with optimal defaults:
+  - Quick start: 1500-2100ms
+  - Hard cap: 2100ms (maximum limit)
+  - Auto-range: 3 samples (9s)
+  - Feedback: ┬▒15ms
+  - Updates: Every 5 rounds
+[LOG1] Γ£à Connection established for code 1
+[WS1] MSG#1 FULL: HAAAPSI gpuNPqklqf 20 
+
+DEBUG ws1 IMPORTANT: HAAAPSI gpuNPqklqf 20
+[LOG1] ≡ƒô¿ Received: HAAAPSI gpuNPqklqf 20
+[LOG1] Recovering with code: onfoqk2ff1
+[WS1] MSG#2 FULL: DOMAINS galaxy.mobstudio.ru
+
+[LOG1] Domain received: galaxy.mobstudio.ru
+
+[WS1] MSG#3 FULL: REGISTER 54531773 620d3ff9d780edd799d7f6770a5b3d3d `[R]OLE[X]`
+
+[LOG1] Registered as: `[R]OLE[X]`
+≡ƒ¢æ AGGRESSIVE DISCONNECT - Stopping ALL processes
+Removed all event listeners for ws1
+Cleared inner timeouts for ws1
+[ws1] ΓÜá∩╕Å No reconnect timeout to clear (reconnectTimeoutId is null)
+Sent PART command for THE_BOT to ws1
+Sent QUIT command to ws1
+[LOG1] ≡ƒ¢æ QUIT - Disconnecting
+[LOG1] Γ£à Disconnected completely
+Γ£à All WebSockets disconnected aggressively
+Terminated ws1 (aggressive)
+Destroyed socket for ws1

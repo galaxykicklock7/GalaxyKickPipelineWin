@@ -4,6 +4,8 @@
 const crypto = require("crypto-js");
 const https = require("https");
 const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
 
 class FinalCompleteGameLogic {
   constructor(wsNumber, config, addLogCallback, updateConfigCallback, reconnectCallback) {
@@ -207,33 +209,149 @@ class FinalCompleteGameLogic {
     // consecutiveErrors, consecutiveSuccesses, recentAdjustments will persist
   }
   
+  // ========================================
+  // PERSISTENT OPPONENT DATA FILE
+  // ========================================
+  
+  getOpponentDataFilePath() {
+    return path.join(process.cwd(), `opponent_data_ws${this.wsNumber}.json`);
+  }
+  
+  loadOpponentData() {
+    try {
+      const filePath = this.getOpponentDataFilePath();
+      if (fs.existsSync(filePath)) {
+        const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        console.log(`[WS${this.wsNumber}] 📂 Loaded opponent data: ${data.records.length} records`);
+        return data;
+      }
+    } catch (error) {
+      console.error(`[WS${this.wsNumber}] Error loading opponent data:`, error);
+    }
+    return { records: [], roundCounter: 0, lastCleanup: Date.now() };
+  }
+  
+  saveOpponentData(data) {
+    try {
+      const filePath = this.getOpponentDataFilePath();
+      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+      console.log(`[WS${this.wsNumber}] 💾 Saved opponent data: ${data.records.length} records`);
+    } catch (error) {
+      console.error(`[WS${this.wsNumber}] Error saving opponent data:`, error);
+    }
+  }
+  
+  addOpponentRecord(username, userid, loginTime, logoutTime, waitingTime) {
+    const data = this.loadOpponentData();
+    
+    const record = {
+      username: username,
+      userid: userid,
+      loginTime: loginTime,
+      logoutTime: logoutTime,
+      waitingTime: waitingTime,
+      timestamp: Date.now(),
+      round: data.roundCounter
+    };
+    
+    data.records.push(record);
+    
+    // Clean old records every 5 rounds (check BEFORE incrementing)
+    if (data.records.length > 15) {
+      const before = data.records.length;
+      data.records = data.records.slice(-15); // Keep last 15 records
+      const after = data.records.length;
+      console.log(`[WS${this.wsNumber}] 🧹 Cleaned opponent data: ${before} → ${after} records`);
+      this.addLog(this.wsNumber, `🧹 Cleaned old data: kept ${after} recent records`);
+      data.lastCleanup = Date.now();
+    }
+    
+    data.roundCounter++;
+    
+    this.saveOpponentData(data);
+    
+    // Calculate optimal timing from recent records
+    this.calculateOptimalFromFile();
+    
+    console.log(`[WS${this.wsNumber}] 📝 Added record: ${username} waited ${waitingTime}ms (total: ${data.records.length})`);
+    this.addLog(this.wsNumber, `📝 ${username}: ${waitingTime}ms`);
+  }
+  
+  calculateOptimalFromFile() {
+    const data = this.loadOpponentData();
+    
+    if (data.records.length < 3) {
+      console.log(`[WS${this.wsNumber}] ⏳ Need more data: ${data.records.length}/3 records`);
+      return;
+    }
+    
+    // Get all waiting times
+    const waitingTimes = data.records.map(r => r.waitingTime);
+    const maxWaitingTime = Math.max(...waitingTimes);
+    const minWaitingTime = Math.min(...waitingTimes);
+    
+    // Cap at 2100ms maximum
+    const cappedMax = Math.min(maxWaitingTime, 2100);
+    
+    // Optimal: Attack 10ms before maximum (but not exceeding 2100ms)
+    const optimalTiming = Math.max(50, cappedMax - 10);
+    
+    // Update AI mode
+    if (this.aiMode && this.aiMode.enabled) {
+      this.aiMode.optimalTiming = optimalTiming;
+      this.aiMode.edgeTiming = optimalTiming;
+      this.aiMode.phase = 'adaptive';
+      this.aiMode.edgeFound = true;
+      
+      this.opponentTracking.detectedMin = minWaitingTime;
+      this.opponentTracking.detectedMax = cappedMax;
+    }
+    
+    console.log(`[WS${this.wsNumber}] 📊 Calculated from ${data.records.length} records:`);
+    console.log(`[WS${this.wsNumber}]   - Range: ${minWaitingTime}ms - ${maxWaitingTime}ms`);
+    console.log(`[WS${this.wsNumber}]   - Capped max: ${cappedMax}ms (limit: 2100ms)`);
+    console.log(`[WS${this.wsNumber}]   - Optimal: ${optimalTiming}ms`);
+    
+    this.addLog(this.wsNumber, `📊 Range: ${minWaitingTime}-${cappedMax}ms → Optimal: ${optimalTiming}ms`);
+  }
+  
   // Process remaining opponents when we QUIT early (before seeing their PART/SLEEP)
   processRemainingOpponents() {
+    // Safety checks
+    if (!this.opponentTracking) return;
     if (!this.opponentTracking.enabled) return;
     if (!this.opponentTracking.activeUsers || this.opponentTracking.activeUsers.size === 0) return;
     
-    // We're leaving early - estimate when remaining opponents will logout
-    // Use existing samples to estimate their logout time
-    
-    if (this.opponentTracking.samples.length > 0) {
-      // Calculate average/median from existing samples
-      const timings = this.opponentTracking.samples.map(s => s.timing);
-      const avgTiming = Math.round(timings.reduce((a, b) => a + b, 0) / timings.length);
+    try {
+      // We're leaving early - didn't see opponent PART/SLEEP
+      // AI will use existing samples to determine timing range
       
-      console.log(`[WS${this.wsNumber}] Processing ${this.opponentTracking.activeUsers.size} remaining opponents (estimated: ${avgTiming}ms)`);
+      const remainingCount = this.opponentTracking.activeUsers.size;
+      console.log(`[WS${this.wsNumber}] 🚪 Leaving early - ${remainingCount} opponents still on planet`);
       
-      // Add estimated samples for remaining users
+      // Log who we're leaving behind
       this.opponentTracking.activeUsers.forEach((user, userid) => {
-        this.addLog(this.wsNumber, `⚠️ Estimating ${user.username} logout: ~${avgTiming}ms`);
-        console.log(`[WS${this.wsNumber}] Estimated opponent ${user.username} (${userid}) logout: ${avgTiming}ms`);
-        this.addOpponentSample(avgTiming);
+        const now = Date.now();
+        const timeSinceJoin = now - user.joinTime;
+        console.log(`[WS${this.wsNumber}]   - ${user.username} (${userid}): joined ${timeSinceJoin}ms ago`);
+        this.addLog(this.wsNumber, `⚠️ Left before ${user.username} logout (${timeSinceJoin}ms so far)`);
       });
-    } else {
-      console.log(`[WS${this.wsNumber}] No samples yet - cannot estimate remaining opponents`);
+      
+      // Clear active users (we're leaving, can't track them anymore)
+      this.opponentTracking.activeUsers.clear();
+      
+      // AI will adapt using existing samples - no need to estimate
+      if (this.opponentTracking.samples && this.opponentTracking.samples.length > 0) {
+        console.log(`[WS${this.wsNumber}] 📊 AI has ${this.opponentTracking.samples.length} samples to work with`);
+        const timings = this.opponentTracking.samples.map(s => s.timing);
+        console.log(`[WS${this.wsNumber}] 📊 Samples: [${timings.join(', ')}]ms`);
+      } else {
+        console.log(`[WS${this.wsNumber}] ⚠️ No samples yet - AI will use default timing`);
+        this.addLog(this.wsNumber, `⚠️ No samples collected yet - need to see opponent PART/SLEEP`);
+      }
+    } catch (error) {
+      console.error(`[WS${this.wsNumber}] Error in processRemainingOpponents:`, error);
     }
-    
-    // Clear active users
-    this.opponentTracking.activeUsers.clear();
   }
   
   // MEDIUM #3: Log learned optimal timings (for persistence)
@@ -327,68 +445,135 @@ class FinalCompleteGameLogic {
     this.aiMode.enabled = true;
     this.opponentTracking.enabled = true;
     
-    // Quick Start: Use wide initial range
-    this.aiMode.searchMin = this.aiMode.initialMin;  // 1500ms
-    this.aiMode.searchMax = this.aiMode.initialMax;  // 3000ms
-    this.aiMode.currentTestTiming = Math.floor((this.aiMode.searchMin + this.aiMode.searchMax) / 2);  // 2250ms
+    // Load opponent data from file
+    const fileData = this.loadOpponentData();
+    const recordCount = fileData.records.length;
+    
+    console.log(`[WS${this.wsNumber}] 🔍 initAIMode: Found ${recordCount} records in file`);
+    this.addLog(this.wsNumber, `🤖 AI Mode: ENABLED`);
+    
+    if (recordCount >= 3) {
+      // We have enough data! Calculate optimal from file
+      console.log(`[WS${this.wsNumber}] ✅ Have ${recordCount} records - calculating optimal`);
+      this.addLog(this.wsNumber, `✅ Have ${recordCount} records - calculating optimal`);
+      this.calculateOptimalFromFile();
+      return;
+    }
+    
+    // Check if we have existing samples from previous connection (fallback)
+    const existingSamples = this.opponentTracking.samples || [];
+    const sampleCount = existingSamples.length;
+    
+    if (sampleCount >= this.aiMode.autoRangeSamples) {
+      // We have enough samples! Use them immediately
+      console.log(`[WS${this.wsNumber}] ✅ Have ${sampleCount} samples - narrowing range`);
+      this.addLog(this.wsNumber, `✅ Have ${sampleCount} samples - using them!`);
+      this.narrowRangeFromSamples();
+      return;
+    }
+    
+    // Start with wide range for stay duration (0-3000ms)
+    // Will narrow after collecting samples
+    this.aiMode.searchMin = 0;
+    this.aiMode.searchMax = 3000;
+    this.aiMode.currentTestTiming = 1500;  // Start at midpoint
     this.aiMode.phase = 'fast_discovery';
     
-    this.addLog(this.wsNumber, `🤖 AI Mode: ENABLED with optimal defaults`);
-    this.addLog(this.wsNumber, `🚀 Quick start: Wide range (${this.aiMode.searchMin}-${this.aiMode.searchMax}ms)`);
-    this.addLog(this.wsNumber, `🔒 Hard cap: Maximum ${this.aiMode.maxCap}ms (will never exceed)`);
-    this.addLog(this.wsNumber, `🎯 Auto-range: Will narrow after ${this.aiMode.autoRangeSamples} samples (${this.aiMode.autoRangeSamples * 3}s)`);
-    this.addLog(this.wsNumber, `⚡ Fast feedback: ±${this.aiMode.feedbackStep}ms adjustments`);
-    this.addLog(this.wsNumber, `🔄 Adaptive: Updates every ${this.aiMode.rangeUpdateFrequency} rounds (${this.aiMode.rangeUpdateFrequency * 3}s)`);
+    if (sampleCount > 0) {
+      console.log(`[WS${this.wsNumber}] 🔄 Have ${sampleCount}/${this.aiMode.autoRangeSamples} samples - need ${this.aiMode.autoRangeSamples - sampleCount} more`);
+      this.addLog(this.wsNumber, `🔄 Have ${sampleCount}/${this.aiMode.autoRangeSamples} samples - collecting more`);
+    } else {
+      console.log(`[WS${this.wsNumber}] 🆕 No samples yet - starting fresh`);
+    }
     
-    console.log(`[WS${this.wsNumber}] AI Mode initialized with optimal defaults:`);
-    console.log(`  - Quick start: ${this.aiMode.searchMin}-${this.aiMode.searchMax}ms`);
-    console.log(`  - Hard cap: ${this.aiMode.maxCap}ms (maximum limit)`);
-    console.log(`  - Auto-range: ${this.aiMode.autoRangeSamples} samples (${this.aiMode.autoRangeSamples * 3}s)`);
-    console.log(`  - Feedback: ±${this.aiMode.feedbackStep}ms`);
-    console.log(`  - Updates: Every ${this.aiMode.rangeUpdateFrequency} rounds`);
+    this.addLog(this.wsNumber, `🤖 AI Mode: ENABLED - Learning opponent timing`);
+    this.addLog(this.wsNumber, `� Ianitial range: ${this.aiMode.searchMin}-${this.aiMode.searchMax}ms (stay duration)`);
+    this.addLog(this.wsNumber, `🎯 Will narrow after ${this.aiMode.autoRangeSamples} samples`);
+    this.addLog(this.wsNumber, `⚡ Feedback: ±${this.aiMode.feedbackStep}ms adjustments`);
+    
+    console.log(`[WS${this.wsNumber}] AI Mode initialized:`);
+    console.log(`  - Initial range: ${this.aiMode.searchMin}-${this.aiMode.searchMax}ms`);
+    console.log(`  - Collecting samples: opponent stay duration (JOIN→PART/SLEEP)`);
+    console.log(`  - Will narrow after ${this.aiMode.autoRangeSamples} samples`);
   }
   
   // Track opponent LOGIN (353 or JOIN message)
   trackOpponentLogin(userid, username) {
-    if (!this.opponentTracking.enabled) return;
-    if (userid === this.useridg) return;  // Skip self
+    if (!this.opponentTracking || !this.opponentTracking.enabled) return;
     
-    const now = Date.now();
-    const roundElapsed = now - this.opponentTracking.roundStartTime;
+    // Skip self
+    if (userid === this.useridg) return;
+    
+    // Skip planet owner/founder
+    if (userid === this.founderUserId) return;
     
     // If user already tracked, skip
-    if (this.opponentTracking.activeUsers.has(userid)) return;
+    if (this.opponentTracking.activeUsers && this.opponentTracking.activeUsers.has(userid)) return;
     
-    // Add to active users - loginTime is ALWAYS round start time
-    this.opponentTracking.activeUsers.set(userid, {
-      username: username,
-      loginTime: this.opponentTracking.roundStartTime,  // Round start, not detection time
-      loginRoundStart: this.opponentTracking.roundStartTime,
-      loginTiming: 0  // Always 0 (round start)
-    });
+    // Add to active users - record JOIN time
+    if (this.opponentTracking.activeUsers) {
+      this.opponentTracking.activeUsers.set(userid, {
+        username: username,
+        joinTime: Date.now()  // Record when they joined
+      });
+    }
     
-    // DON'T add sample on login - only on logout!
-    // Sample = logout time (when they leave = when they attacked)
-    
-    this.addLog(this.wsNumber, `🟢 Opponent LOGIN: ${username} (tracking for logout)`);
-    console.log(`[WS${this.wsNumber}] Opponent LOGIN: ${username} (${userid}) - will sample on logout`);
+    this.addLog(this.wsNumber, `🟢 Opponent: ${username}`);
+    console.log(`[WS${this.wsNumber}] 👁️ Opponent JOIN: ${username} (${userid}) at ${Date.now()}`);
   }
   
   // Track opponent LOGOUT (PART or SLEEP message)
   trackOpponentLogout(userid) {
-    if (!this.opponentTracking.enabled) return;
+    console.log(`[WS${this.wsNumber}] 🔍 trackOpponentLogout called for userid: ${userid}`);
+    
+    if (!this.opponentTracking || !this.opponentTracking.enabled) {
+      console.log(`[WS${this.wsNumber}] ⚠️ Opponent tracking not enabled`);
+      return;
+    }
+    
+    if (!this.opponentTracking.activeUsers) {
+      console.log(`[WS${this.wsNumber}] ⚠️ activeUsers not initialized`);
+      return;
+    }
+    
+    // Skip self
+    if (userid === this.useridg) {
+      console.log(`[WS${this.wsNumber}] ⏭️ Skipping self logout`);
+      return;
+    }
+    
+    // Skip planet owner/founder
+    if (userid === this.founderUserId) {
+      console.log(`[WS${this.wsNumber}] ⏭️ Skipping planet owner logout`);
+      return;
+    }
     
     const user = this.opponentTracking.activeUsers.get(userid);
-    if (!user) return;  // Not tracked
+    if (!user) {
+      console.log(`[WS${this.wsNumber}] ⚠️ Opponent ${userid} logout - not in activeUsers (size: ${this.opponentTracking.activeUsers.size})`);
+      return;
+    }
     
     const now = Date.now();
-    const roundElapsed = now - this.opponentTracking.roundStartTime;
+    const stayDuration = now - user.joinTime;  // How long they stayed (PART/SLEEP - JOIN)
     
-    // Sample = time from round start to logout (this is their attack timing!)
-    this.addOpponentSample(roundElapsed);
+    console.log(`[WS${this.wsNumber}] 📊 Stay duration calculation: now=${now}, joinTime=${user.joinTime}, duration=${stayDuration}ms`);
     
-    this.addLog(this.wsNumber, `🔴 Opponent LOGOUT: ${user.username} at ${roundElapsed}ms`);
-    console.log(`[WS${this.wsNumber}] Opponent LOGOUT: ${user.username} (${userid}) at ${roundElapsed}ms - SAMPLE COLLECTED`);
+    // Only collect valid samples (0-3000ms = stayed within one round)
+    if (stayDuration >= 0 && stayDuration <= 3000) {
+      // Valid sample - opponent stayed within reasonable time
+      this.addOpponentSample(stayDuration);
+      
+      // Save to persistent file
+      this.addOpponentRecord(user.username, userid, user.joinTime, now, stayDuration);
+      
+      this.addLog(this.wsNumber, `🔴 Opponent LOGOUT: ${user.username} stayed ${stayDuration}ms`);
+      console.log(`[WS${this.wsNumber}] ✅ SAMPLE COLLECTED: ${user.username} stayed ${stayDuration}ms (JOIN→PART/SLEEP)`);
+    } else {
+      // Invalid - stayed too long (multi-round) or negative time
+      console.log(`[WS${this.wsNumber}] ⏭️ Skipping ${user.username}: stayed ${stayDuration}ms (invalid)`);
+      this.addLog(this.wsNumber, `⚠️ Invalid sample: ${user.username} stayed ${stayDuration}ms`);
+    }
     
     // Remove from active users
     this.opponentTracking.activeUsers.delete(userid);
@@ -424,36 +609,33 @@ class FinalCompleteGameLogic {
     if (this.opponentTracking.samples.length < this.aiMode.autoRangeSamples) return;
     
     const timings = this.opponentTracking.samples.map(s => s.timing);
-    const minTiming = Math.min(...timings);
-    const maxTiming = Math.max(...timings);
+    const minTiming = Math.min(...timings);  // Fastest opponent
+    const maxTiming = Math.max(...timings);  // Slowest opponent
     
-    // Add buffer around detected range
-    const newMin = Math.max(1500, minTiming - 100);
-    let newMax = Math.min(3000, maxTiming + 100);
+    // STRATEGY: Attack as CLOSE as possible to the MAXIMUM (slowest opponent)
+    // This gives us the most time while still beating everyone!
+    // Use 10ms buffer to be safe
+    const optimalTiming = Math.max(50, maxTiming - 10);
     
-    // HARD CAP: Never exceed 1975ms
-    if (newMax > this.aiMode.maxCap) {
-      newMax = this.aiMode.maxCap;
-      this.addLog(this.wsNumber, `⚠️ Max range capped at ${this.aiMode.maxCap}ms (hard limit)`);
-    }
+    this.addLog(this.wsNumber, `🎯 Samples: [${timings.join(', ')}]ms`);
+    this.addLog(this.wsNumber, `📊 Opponent range: ${minTiming}ms (fastest) - ${maxTiming}ms (slowest)`);
+    this.addLog(this.wsNumber, `⚡ AI optimal: ${optimalTiming}ms (${maxTiming} - 10ms buffer)`);
+    this.addLog(this.wsNumber, `🏆 Strategy: Attack close to slowest opponent!`);
     
-    this.addLog(this.wsNumber, `🎯 Range narrowed after ${this.aiMode.autoRangeSamples} samples (${this.aiMode.autoRangeSamples * 3}s)`);
-    this.addLog(this.wsNumber, `📊 Old range: ${this.aiMode.searchMin}-${this.aiMode.searchMax}ms`);
-    this.addLog(this.wsNumber, `📊 New range: ${newMin}-${newMax}ms`);
+    console.log(`[WS${this.wsNumber}] AI Mode: Slowest opponent ${maxTiming}ms, attacking at ${optimalTiming}ms`);
+    console.log(`[WS${this.wsNumber}] Samples: [${timings.join(', ')}]ms`);
     
-    console.log(`[WS${this.wsNumber}] AI Mode: Range narrowed from ${this.aiMode.searchMin}-${this.aiMode.searchMax}ms to ${newMin}-${newMax}ms`);
-    
-    this.opponentTracking.detectedMin = newMin;
-    this.opponentTracking.detectedMax = newMax;
+    this.opponentTracking.detectedMin = minTiming;
+    this.opponentTracking.detectedMax = maxTiming;
     this.opponentTracking.lastUpdate = Date.now();
     
-    // Update AI search range
-    this.aiMode.searchMin = newMin;
-    this.aiMode.searchMax = newMax;
-    this.aiMode.currentTestTiming = Math.floor((newMin + newMax) / 2);
-    this.aiMode.phase = 'discovery';  // Switch to normal discovery with narrowed range
+    // Set optimal timing - attack just before slowest opponent
+    this.aiMode.optimalTiming = optimalTiming;
+    this.aiMode.edgeTiming = optimalTiming;
+    this.aiMode.edgeFound = true;
+    this.aiMode.phase = 'adaptive';  // Go straight to adaptive mode
     
-    this.addLog(this.wsNumber, `🔍 Starting binary search in narrowed range`);
+    this.addLog(this.wsNumber, `✅ AI ready: Attacking at ${optimalTiming}ms`);
   }
   
   // Check if range needs updating (called periodically)
@@ -472,35 +654,31 @@ class FinalCompleteGameLogic {
     if (this.opponentTracking.samples.length < 3) return;
     
     const timings = this.opponentTracking.samples.map(s => s.timing);
-    const newMin = Math.max(1500, Math.min(...timings) - 100);
-    let newMax = Math.min(3000, Math.max(...timings) + 100);
+    const newMin = Math.min(...timings);
+    const newMax = Math.max(...timings);
+    const newAvg = Math.round(timings.reduce((a, b) => a + b, 0) / timings.length);
     
-    // HARD CAP: Never exceed 1975ms
-    if (newMax > this.aiMode.maxCap) {
-      newMax = this.aiMode.maxCap;
-    }
+    // Check if average changed significantly (>50ms)
+    const oldAvg = Math.round((this.opponentTracking.detectedMin + this.opponentTracking.detectedMax) / 2);
+    const avgChanged = Math.abs(newAvg - oldAvg) > 50;
     
-    // Check if range changed significantly (>100ms)
-    const minChanged = this.opponentTracking.detectedMin && Math.abs(newMin - this.opponentTracking.detectedMin) > 100;
-    const maxChanged = this.opponentTracking.detectedMax && Math.abs(newMax - this.opponentTracking.detectedMax) > 100;
-    
-    if (minChanged || maxChanged) {
-      this.addLog(this.wsNumber, `🔄 Opponent timing changed!`);
-      this.addLog(this.wsNumber, `📊 Old range: ${this.opponentTracking.detectedMin}-${this.opponentTracking.detectedMax}ms`);
-      this.addLog(this.wsNumber, `📊 New range: ${newMin}-${newMax}ms`);
+    if (avgChanged) {
+      this.addLog(this.wsNumber, `� Olpponent timing changed!`);
+      this.addLog(this.wsNumber, `📊 Old avg: ${oldAvg}ms → New avg: ${newAvg}ms`);
       
-      console.log(`[WS${this.wsNumber}] AI Mode: Opponent range updated from ${this.opponentTracking.detectedMin}-${this.opponentTracking.detectedMax}ms to ${newMin}-${newMax}ms`);
+      console.log(`[WS${this.wsNumber}] AI Mode: Opponent average changed from ${oldAvg}ms to ${newAvg}ms`);
       
       this.opponentTracking.detectedMin = newMin;
       this.opponentTracking.detectedMax = newMax;
       this.opponentTracking.lastUpdate = Date.now();
       
-      // Reset AI discovery with new range
-      this.aiMode.searchMin = newMin;
-      this.aiMode.searchMax = newMax;
-      this.resetAIDiscovery();
+      // Recalculate optimal timing - attack just before slowest opponent
+      const newOptimal = Math.max(50, newMax - 10);
+      this.aiMode.optimalTiming = newOptimal;
+      this.aiMode.edgeTiming = newOptimal;
       
-      this.addLog(this.wsNumber, `🤖 Restarting AI Mode with updated range`);
+      this.addLog(this.wsNumber, `⚡ AI updated: Now attacking at ${newOptimal}ms`);
+      console.log(`[WS${this.wsNumber}] AI Mode: Updated optimal timing to ${newOptimal}ms`);
     }
   }
   
@@ -508,7 +686,19 @@ class FinalCompleteGameLogic {
   getAITiming() {
     if (!this.aiMode.enabled) {
       // Fallback to normal timing
+      console.log(`[WS${this.wsNumber}] AI: Not enabled - using config timing`);
       return parseInt(this.config[`attack${this.wsNumber}`] || 1940);
+    }
+    
+    console.log(`[WS${this.wsNumber}] AI: phase=${this.aiMode.phase}, samples=${this.opponentTracking.samples.length}, optimalTiming=${this.aiMode.optimalTiming}`);
+    
+    // WAIT FOR SAMPLES: If in fast_discovery and not enough samples yet, use config timing
+    if (this.aiMode.phase === 'fast_discovery' && this.opponentTracking.samples.length < this.aiMode.autoRangeSamples) {
+      const configTiming = parseInt(this.config[`attack${this.wsNumber}`] || 1940);
+      const sampleCount = this.opponentTracking.samples.length;
+      console.log(`[WS${this.wsNumber}] AI: Collecting samples (${sampleCount}/${this.aiMode.autoRangeSamples}) - using config timing ${configTiming}ms`);
+      this.addLog(this.wsNumber, `📊 AI: ${sampleCount}/${this.aiMode.autoRangeSamples} samples - using ${configTiming}ms`);
+      return configTiming;
     }
     
     // Increment round counter for range updates
@@ -518,24 +708,20 @@ class FinalCompleteGameLogic {
     
     if (this.aiMode.phase === 'fast_discovery' || this.aiMode.phase === 'discovery') {
       // Binary search phase - test current candidate
+      console.log(`[WS${this.wsNumber}] AI: Using test timing ${this.aiMode.currentTestTiming}ms`);
       return this.aiMode.currentTestTiming;
     } else if (this.aiMode.phase === 'exploitation') {
       // Use found optimal
       return this.aiMode.optimalTiming;
     } else if (this.aiMode.phase === 'adaptive') {
-      // Adaptive: mostly use optimal, occasionally test edge
-      const shouldTestEdge = Math.random() * 100 < this.aiMode.edgeTestFrequency;
-      
-      if (shouldTestEdge && this.aiMode.edgeTiming) {
-        this.aiMode.lastEdgeTest = Date.now();
-        this.addLog(this.wsNumber, `🔬 AI: Testing edge at ${this.aiMode.edgeTiming}ms`);
-        return this.aiMode.edgeTiming;
-      } else {
-        return this.aiMode.optimalTiming;
-      }
+      // Adaptive: Use optimal timing
+      console.log(`[WS${this.wsNumber}] AI: Adaptive mode - using optimal ${this.aiMode.optimalTiming}ms`);
+      this.addLog(this.wsNumber, `⚡ AI: Using optimal ${this.aiMode.optimalTiming}ms`);
+      return this.aiMode.optimalTiming;
     }
     
     // Fallback
+    console.log(`[WS${this.wsNumber}] AI: Fallback - phase=${this.aiMode.phase}, optimalTiming=${this.aiMode.optimalTiming}`);
     return this.aiMode.optimalTiming || parseInt(this.config[`attack${this.wsNumber}`] || 1940);
   }
   
@@ -1714,6 +1900,8 @@ class FinalCompleteGameLogic {
   // Track users from 353 message (users already on planet)
   track353Users(text) {
     try {
+      console.log(`[WS${this.wsNumber}] 🔍 track353Users called - opponentTracking.enabled=${this.opponentTracking.enabled}`);
+      
       // Parse user list from 353 message
       let members = text.split("+").join("");
       members = members.split("@").join("");
@@ -1723,6 +1911,9 @@ class FinalCompleteGameLogic {
       // Extract user IDs (numeric, length >= 6)
       const integers = membersarr.filter(item => !isNaN(item) && item !== "-" && item.length >= 6);
       
+      console.log(`[WS${this.wsNumber}] 353: Found ${integers.length} potential users in list`);
+      
+      let trackedCount = 0;
       integers.forEach((userid) => {
         const idx = membersarr.indexOf(userid);
         if (idx > 0) {
@@ -1733,10 +1924,12 @@ class FinalCompleteGameLogic {
           
           // Track this user (will sample when they logout)
           this.trackOpponentLogin(userid, username);
+          trackedCount++;
         }
       });
       
-      console.log(`[WS${this.wsNumber}] 353: Tracked ${integers.length} users already on planet`);
+      console.log(`[WS${this.wsNumber}] 353: Tracked ${trackedCount} users already on planet`);
+      this.addLog(this.wsNumber, `📊 353: Tracking ${trackedCount} users on planet`);
     } catch (error) {
       console.error(`[WS${this.wsNumber}] Error tracking 353 users:`, error);
     }
@@ -2391,16 +2584,10 @@ class FinalCompleteGameLogic {
         this.consecutiveSuccesses++;  // Track successes
         this.addLog(this.wsNumber, `✅ Success - Imprisoned target!`);
         
-        // OPPONENT TRACKING: When we successfully imprison, infer opponent timing
-        // We WON = Opponent was SLOWER than us (or not present)
-        if (this.opponentTracking.enabled && this.aiMode.lastAttackTiming) {
-          const ourTiming = this.aiMode.lastAttackTiming;
-          const inferredMin = ourTiming;
-          const inferredMax = ourTiming + 200;
-          const inferredOpponentTiming = inferredMin + Math.floor(Math.random() * (inferredMax - inferredMin));
-          
-          this.addOpponentSample(inferredOpponentTiming);
-          console.log(`[WS${this.wsNumber}] Opponent timing inferred: ${inferredOpponentTiming}ms (we won at ${ourTiming}ms, opponent was slower)`);
+        // OPPONENT TRACKING: Don't infer from wins - only use actual PART/SLEEP samples
+        // Inference is unreliable - opponent might not have been present or attacked yet
+        if (this.opponentTracking.enabled) {
+          console.log(`[WS${this.wsNumber}] We won - waiting for actual opponent PART/SLEEP for accurate sample`);
         }
         
         // QUICK FIX #2: Only adjust relevant timing based on status (TIMER SHIFT)
@@ -3005,10 +3192,20 @@ class FinalCompleteGameLogic {
       const planetInfo = snippets.slice(1).join(" ");
       const plnt = snippets[1];
       
-      // OPPONENT TRACKING: Mark start of new round for timing calculations
-      if (this.opponentTracking.enabled) {
-        this.opponentTracking.roundStartTime = Date.now();
-        console.log(`[WS${this.wsNumber}] Round start time set for opponent tracking`);
+      // OPPONENT TRACKING: New round started (every 3 seconds)
+      if (this.opponentTracking && this.opponentTracking.enabled) {
+        // Clear activeUsers - fresh start each round
+        // Users will be re-tracked if they JOIN again
+        if (this.opponentTracking.activeUsers) {
+          const prevCount = this.opponentTracking.activeUsers.size;
+          this.opponentTracking.activeUsers.clear();
+          
+          if (prevCount > 0) {
+            console.log(`[WS${this.wsNumber}] 🔄 New round - cleared ${prevCount} tracked users`);
+          }
+        }
+        
+        console.log(`[WS${this.wsNumber}] 🔄 New round started`);
       }
       
       // Update current planet and prison status
@@ -3047,15 +3244,10 @@ class FinalCompleteGameLogic {
         
         // OPPONENT TRACKING: We got imprisoned = Opponent WON (was FASTER than us!)
         if (this.opponentTracking.enabled && this.aiMode.lastAttackTiming) {
-          const ourTiming = this.aiMode.lastAttackTiming;
-          // Opponent was FASTER than us - likely between ourTiming-200 and ourTiming
-          const inferredMin = Math.max(1500, ourTiming - 200);
-          const inferredMax = ourTiming;
-          const inferredOpponentTiming = inferredMin + Math.floor(Math.random() * (inferredMax - inferredMin));
-          
-          this.addOpponentSample(inferredOpponentTiming);
+          // OPPONENT TRACKING: Don't infer from losses - only use actual PART/SLEEP samples
+          // Inference is unreliable - we need actual timing data
+          console.log(`[WS${this.wsNumber}] We got imprisoned - waiting for actual opponent PART/SLEEP for accurate sample`);
           this.addLog(this.wsNumber, `🔴 Opponent imprisoned us! They were faster`);
-          console.log(`[WS${this.wsNumber}] Opponent timing inferred: ${inferredOpponentTiming}ms (we got imprisoned at ${ourTiming}ms, opponent was faster)`);
         }
         
         if (this.config.autorelease) {
@@ -3182,9 +3374,16 @@ class FinalCompleteGameLogic {
         // Clear the stored timeout ID before reconnecting
         this.reconnectTimeoutId = null;
         
+        // Reset OffSleep flag before reconnecting
+        this.isOffSleepActive = false;
+        
         // reconnectCallback will also check if user disconnected
         if (this.reconnect) {
+          console.log(`[WS${this.wsNumber}] 🔄 Calling reconnect callback for WS${this.wsNumber}`);
           this.reconnect(this.wsNumber);
+        } else {
+          console.error(`[WS${this.wsNumber}] ❌ ERROR: reconnect callback is not defined!`);
+          this.addLog(this.wsNumber, `❌ ERROR: Cannot reconnect - callback missing`);
         }
       }, reconnectTime);
       

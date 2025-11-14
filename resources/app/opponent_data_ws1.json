@@ -1,0 +1,60 @@
+{
+  "records": [
+    {
+      "username": "[l][e][0]",
+      "userid": "61248897",
+      "loginTime": 1763133131979,
+      "logoutTime": 1763133134266,
+      "waitingTime": 2287,
+      "timestamp": 1763133134270,
+      "round": 0
+    },
+    {
+      "username": "[l][e][0]",
+      "userid": "61248897",
+      "loginTime": 1763133197107,
+      "logoutTime": 1763133199357,
+      "waitingTime": 2250,
+      "timestamp": 1763133199373,
+      "round": 1
+    },
+    {
+      "username": "[l][e][0]",
+      "userid": "61248897",
+      "loginTime": 1763133215647,
+      "logoutTime": 1763133217619,
+      "waitingTime": 1972,
+      "timestamp": 1763133217626,
+      "round": 2
+    },
+    {
+      "username": "[l][e][0]",
+      "userid": "61248897",
+      "loginTime": 1763133343277,
+      "logoutTime": 1763133345589,
+      "waitingTime": 2312,
+      "timestamp": 1763133345591,
+      "round": 3
+    },
+    {
+      "username": "[l][e][0]",
+      "userid": "61248897",
+      "loginTime": 1763133351958,
+      "logoutTime": 1763133354378,
+      "waitingTime": 2420,
+      "timestamp": 1763133354412,
+      "round": 4
+    },
+    {
+      "username": "[l][e][0]",
+      "userid": "61248897",
+      "loginTime": 1763133361153,
+      "logoutTime": 1763133363374,
+      "waitingTime": 2221,
+      "timestamp": 1763133363376,
+      "round": 5
+    }
+  ],
+  "roundCounter": 6,
+  "lastCleanup": 1763133354413
+}
