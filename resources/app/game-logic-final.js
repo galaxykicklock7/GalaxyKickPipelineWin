@@ -655,8 +655,8 @@ class FinalCompleteGameLogic {
     const cutoff = now - this.aiMode.rollingWindow;
     this.opponentTracking.samples = this.opponentTracking.samples.filter(s => s.timestamp > cutoff);
     
-    console.log(`[WS${this.wsNumber}] Opponent sample ${this.opponentTracking.samples.length}: ${timing}ms`);
-    this.addLog(this.wsNumber, `📊 Opponent sample ${this.opponentTracking.samples.length}/${this.aiMode.autoRangeSamples}: ${timing}ms`);
+    console.log(`[WS${this.wsNumber}] ✅ Sample collected: ${timing}ms (total: ${this.opponentTracking.samples.length})`);
+    this.addLog(this.wsNumber, `✅ Sample ${this.opponentTracking.samples.length}: ${timing}ms`);
     
     // After collecting minimum samples, narrow the range
     if (this.opponentTracking.samples.length === this.aiMode.autoRangeSamples && this.aiMode.phase === 'fast_discovery') {
@@ -753,25 +753,32 @@ class FinalCompleteGameLogic {
     // SIMPLE LOGIC: Get most recent opponent stay duration and subtract 20ms
     const samples = this.opponentTracking.samples;
     
+    console.log(`[WS${this.wsNumber}] 🔍 getAITiming: samples.length=${samples.length}, currentRival=${this.opponentTracking.currentRival}`);
+    
     if (samples.length === 0) {
       // No data yet - use safe timing to collect first sample
       const safeTiming = 1940;
-      console.log(`[WS${this.wsNumber}] AI: No data yet - using ${safeTiming}ms to collect rival time`);
-      this.addLog(this.wsNumber, `📊 AI: Waiting for rival data - using ${safeTiming}ms`);
+      console.log(`[WS${this.wsNumber}] ⚠️ AI: NO SAMPLES YET - using ${safeTiming}ms to collect rival time`);
+      this.addLog(this.wsNumber, `📊 AI: No data - using ${safeTiming}ms`);
       return safeTiming;
     }
+    
+    console.log(`[WS${this.wsNumber}] ✅ AI: Have ${samples.length} samples, latest=${samples[samples.length - 1].timing}ms`);
     
     // IMPROVED: Use rival-specific profile if available
     const currentRival = this.opponentTracking.currentRival;
     let rivalProfile = null;
     let adaptiveOffset = this.aiMode.adaptiveOffset || -20;
-    let latestRivalTime = samples[samples.length - 1];
+    
+    // Extract timing value from sample object (samples are {timing, timestamp})
+    let latestRivalTime = samples[samples.length - 1].timing;
     
     if (currentRival && this.opponentTracking.rivalProfiles.has(currentRival)) {
       rivalProfile = this.opponentTracking.rivalProfiles.get(currentRival);
       
       // Use rival's specific offset and most recent sample
       if (rivalProfile.samples.length > 0) {
+        // Rival profile stores plain numbers, not objects
         latestRivalTime = rivalProfile.samples[rivalProfile.samples.length - 1];
         adaptiveOffset = rivalProfile.adaptiveOffset;
         
