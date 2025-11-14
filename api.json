@@ -7,12 +7,17 @@ AI MODE EXPLANATION:
 - aiMode: true  = AUTO mode with optimal defaults:
   * Auto-detects opponent timing (3 samples = 9 seconds)
   * Finds optimal timing (20-30 seconds)
+  * HARD CAP: Maximum 1975ms (will NEVER exceed this limit)
   * Fast feedback (±15ms adjustments)
   * Rolling window (15 seconds)
   * Updates every 5 rounds
   * Targets fast opponents (beats everyone)
   * Adaptive mode (continuously optimizes)
   NO OTHER CONFIGURATION NEEDED - All defaults are optimal!
+
+IMPORTANT: AI Mode maximum is HARD CAPPED at 1975ms
+  Example: Opponents at 2000-2200ms → Range: 1900-1975ms (capped!)
+  Example: Opponents at 1700-1900ms → Range: 1600-1975ms (within cap)
 
 curl -X POST https://best-backend.loca.lt/api/configure \
   -H "Content-Type: application/json" \

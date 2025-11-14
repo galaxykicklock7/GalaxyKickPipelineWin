@@ -83,8 +83,9 @@ class FinalCompleteGameLogic {
       feedbackEnabled: true,        // Auto-adjust on 3s errors
       feedbackStep: 15,             // 15ms adjustments (fast adaptation)
       quickStart: true,             // Start immediately with wide range
-      initialMin: 1500,             // Wide initial range
-      initialMax: 3000,
+      initialMin: 1500,             // Wide initial range minimum
+      initialMax: 1975,             // HARD CAP: Never exceed 1975ms
+      maxCap: 1975,                 // HARD MAXIMUM CAP (user requirement)
       safetyBuffer: 10,             // 10ms buffer on edge
       targetSuccessRate: 0.90,      // 90% success rate (faster than 95%)
       edgeTestFrequency: 10,        // Test edge 10% of time
@@ -96,8 +97,8 @@ class FinalCompleteGameLogic {
       
       // Binary search state
       searchMin: 1500,
-      searchMax: 3000,
-      currentTestTiming: 2250,      // Midpoint of initial range
+      searchMax: 1975,              // Start with hard cap
+      currentTestTiming: 1737,      // Midpoint of initial range (1500+1975)/2
       
       // Timing candidates and results
       timingResults: {},            // { timing: {attempts, successes, failures, rate} }
@@ -297,12 +298,14 @@ class FinalCompleteGameLogic {
     
     this.addLog(this.wsNumber, `🤖 AI Mode: ENABLED with optimal defaults`);
     this.addLog(this.wsNumber, `🚀 Quick start: Wide range (${this.aiMode.searchMin}-${this.aiMode.searchMax}ms)`);
+    this.addLog(this.wsNumber, `🔒 Hard cap: Maximum ${this.aiMode.maxCap}ms (will never exceed)`);
     this.addLog(this.wsNumber, `🎯 Auto-range: Will narrow after ${this.aiMode.autoRangeSamples} samples (${this.aiMode.autoRangeSamples * 3}s)`);
     this.addLog(this.wsNumber, `⚡ Fast feedback: ±${this.aiMode.feedbackStep}ms adjustments`);
     this.addLog(this.wsNumber, `🔄 Adaptive: Updates every ${this.aiMode.rangeUpdateFrequency} rounds (${this.aiMode.rangeUpdateFrequency * 3}s)`);
     
     console.log(`[WS${this.wsNumber}] AI Mode initialized with optimal defaults:`);
     console.log(`  - Quick start: ${this.aiMode.searchMin}-${this.aiMode.searchMax}ms`);
+    console.log(`  - Hard cap: ${this.aiMode.maxCap}ms (maximum limit)`);
     console.log(`  - Auto-range: ${this.aiMode.autoRangeSamples} samples (${this.aiMode.autoRangeSamples * 3}s)`);
     console.log(`  - Feedback: ±${this.aiMode.feedbackStep}ms`);
     console.log(`  - Updates: Every ${this.aiMode.rangeUpdateFrequency} rounds`);
@@ -343,7 +346,13 @@ class FinalCompleteGameLogic {
     
     // Add buffer around detected range
     const newMin = Math.max(1500, minTiming - 100);
-    const newMax = Math.min(3000, maxTiming + 100);
+    let newMax = Math.min(3000, maxTiming + 100);
+    
+    // HARD CAP: Never exceed 1975ms
+    if (newMax > this.aiMode.maxCap) {
+      newMax = this.aiMode.maxCap;
+      this.addLog(this.wsNumber, `⚠️ Max range capped at ${this.aiMode.maxCap}ms (hard limit)`);
+    }
     
     this.addLog(this.wsNumber, `🎯 Range narrowed after ${this.aiMode.autoRangeSamples} samples (${this.aiMode.autoRangeSamples * 3}s)`);
     this.addLog(this.wsNumber, `📊 Old range: ${this.aiMode.searchMin}-${this.aiMode.searchMax}ms`);
@@ -381,7 +390,12 @@ class FinalCompleteGameLogic {
     
     const timings = this.opponentTracking.samples.map(s => s.timing);
     const newMin = Math.max(1500, Math.min(...timings) - 100);
-    const newMax = Math.min(3000, Math.max(...timings) + 100);
+    let newMax = Math.min(3000, Math.max(...timings) + 100);
+    
+    // HARD CAP: Never exceed 1975ms
+    if (newMax > this.aiMode.maxCap) {
+      newMax = this.aiMode.maxCap;
+    }
     
     // Check if range changed significantly (>100ms)
     const minChanged = this.opponentTracking.detectedMin && Math.abs(newMin - this.opponentTracking.detectedMin) > 100;
