@@ -200,8 +200,40 @@ class FinalCompleteGameLogic {
     // Reset reconnection flags
     this.isOffSleepActive = false;
     
+    // OPPONENT TRACKING: Process remaining active users before reset
+    this.processRemainingOpponents();
+    
     // DON'T reset timer shift counters or adjustments - we want to keep learning!
     // consecutiveErrors, consecutiveSuccesses, recentAdjustments will persist
+  }
+  
+  // Process remaining opponents when we QUIT early (before seeing their PART/SLEEP)
+  processRemainingOpponents() {
+    if (!this.opponentTracking.enabled) return;
+    if (!this.opponentTracking.activeUsers || this.opponentTracking.activeUsers.size === 0) return;
+    
+    // We're leaving early - estimate when remaining opponents will logout
+    // Use existing samples to estimate their logout time
+    
+    if (this.opponentTracking.samples.length > 0) {
+      // Calculate average/median from existing samples
+      const timings = this.opponentTracking.samples.map(s => s.timing);
+      const avgTiming = Math.round(timings.reduce((a, b) => a + b, 0) / timings.length);
+      
+      console.log(`[WS${this.wsNumber}] Processing ${this.opponentTracking.activeUsers.size} remaining opponents (estimated: ${avgTiming}ms)`);
+      
+      // Add estimated samples for remaining users
+      this.opponentTracking.activeUsers.forEach((user, userid) => {
+        this.addLog(this.wsNumber, `⚠️ Estimating ${user.username} logout: ~${avgTiming}ms`);
+        console.log(`[WS${this.wsNumber}] Estimated opponent ${user.username} (${userid}) logout: ${avgTiming}ms`);
+        this.addOpponentSample(avgTiming);
+      });
+    } else {
+      console.log(`[WS${this.wsNumber}] No samples yet - cannot estimate remaining opponents`);
+    }
+    
+    // Clear active users
+    this.opponentTracking.activeUsers.clear();
   }
   
   // MEDIUM #3: Log learned optimal timings (for persistence)
@@ -327,19 +359,19 @@ class FinalCompleteGameLogic {
     // If user already tracked, skip
     if (this.opponentTracking.activeUsers.has(userid)) return;
     
-    // Add to active users
+    // Add to active users - loginTime is ALWAYS round start time
     this.opponentTracking.activeUsers.set(userid, {
       username: username,
-      loginTime: now,
+      loginTime: this.opponentTracking.roundStartTime,  // Round start, not detection time
       loginRoundStart: this.opponentTracking.roundStartTime,
-      loginTiming: roundElapsed  // Time since round started
+      loginTiming: 0  // Always 0 (round start)
     });
     
-    // Add login timing sample
-    this.addOpponentSample(roundElapsed);
+    // DON'T add sample on login - only on logout!
+    // Sample = logout time (when they leave = when they attacked)
     
-    this.addLog(this.wsNumber, `🟢 Opponent LOGIN: ${username} at ${roundElapsed}ms`);
-    console.log(`[WS${this.wsNumber}] Opponent LOGIN: ${username} (${userid}) at ${roundElapsed}ms into round`);
+    this.addLog(this.wsNumber, `🟢 Opponent LOGIN: ${username} (tracking for logout)`);
+    console.log(`[WS${this.wsNumber}] Opponent LOGIN: ${username} (${userid}) - will sample on logout`);
   }
   
   // Track opponent LOGOUT (PART or SLEEP message)
@@ -351,13 +383,12 @@ class FinalCompleteGameLogic {
     
     const now = Date.now();
     const roundElapsed = now - this.opponentTracking.roundStartTime;
-    const activeTime = now - user.loginTime;
     
-    this.addLog(this.wsNumber, `🔴 Opponent LOGOUT: ${user.username} at ${roundElapsed}ms (active ${Math.round(activeTime/1000)}s)`);
-    console.log(`[WS${this.wsNumber}] Opponent LOGOUT: ${user.username} (${userid}) at ${roundElapsed}ms, was active for ${Math.round(activeTime/1000)}s`);
-    
-    // Add logout timing sample
+    // Sample = time from round start to logout (this is their attack timing!)
     this.addOpponentSample(roundElapsed);
+    
+    this.addLog(this.wsNumber, `🔴 Opponent LOGOUT: ${user.username} at ${roundElapsed}ms`);
+    console.log(`[WS${this.wsNumber}] Opponent LOGOUT: ${user.username} (${userid}) at ${roundElapsed}ms - SAMPLE COLLECTED`);
     
     // Remove from active users
     this.opponentTracking.activeUsers.delete(userid);
@@ -1659,6 +1690,11 @@ class FinalCompleteGameLogic {
       console.log(`[WS${this.wsNumber}] 353 - Planet: ${planetName}, inPrison: ${this.inPrison}`);
     }
     
+    // OPPONENT TRACKING: Track users already on planet (353 user list)
+    if (this.opponentTracking.enabled && !this.inPrison) {
+      this.track353Users(text);
+    }
+    
     // Check N/A mode first - applies to ALL connections
     if (this.config.modena === true) {
       this.handle353BanMode(ws, snippets, text);
@@ -1673,6 +1709,37 @@ class FinalCompleteGameLogic {
     
     // ALL codes (1-5) - Use unified kick/imprison mode handler
     this.handle353KickMode(ws, snippets, text);
+  }
+  
+  // Track users from 353 message (users already on planet)
+  track353Users(text) {
+    try {
+      // Parse user list from 353 message
+      let members = text.split("+").join("");
+      members = members.split("@").join("");
+      members = members.split(":").join("");
+      const membersarr = members.toLowerCase().split(" ");
+      
+      // Extract user IDs (numeric, length >= 6)
+      const integers = membersarr.filter(item => !isNaN(item) && item !== "-" && item.length >= 6);
+      
+      integers.forEach((userid) => {
+        const idx = membersarr.indexOf(userid);
+        if (idx > 0) {
+          const username = membersarr[idx - 1];
+          
+          // Skip if username is also numeric (means it's not a username)
+          if (!isNaN(username)) return;
+          
+          // Track this user (will sample when they logout)
+          this.trackOpponentLogin(userid, username);
+        }
+      });
+      
+      console.log(`[WS${this.wsNumber}] 353: Tracked ${integers.length} users already on planet`);
+    } catch (error) {
+      console.error(`[WS${this.wsNumber}] Error tracking 353 users:`, error);
+    }
   }
 
   // ========================================
