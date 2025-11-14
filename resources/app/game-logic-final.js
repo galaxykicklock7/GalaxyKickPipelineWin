@@ -70,17 +70,34 @@ class FinalCompleteGameLogic {
     this.targetIndex = 0; // For round robin mode
     this.cooldownDuration = 3500; // 3.5 seconds cooldown after attack
     
-    // AI Mode - Edge Detection (NEW)
+    // AI Mode - Simplified with Optimal Defaults (HARDCODED)
     this.aiMode = {
       enabled: false,
-      phase: 'discovery',           // 'discovery', 'exploitation', 'adaptive'
+      
+      // OPTIMAL DEFAULTS (HARDCODED - No user configuration needed)
+      autoRange: true,              // Always auto-detect opponent timing
+      autoRangeSamples: 3,          // 3 samples = 9 seconds to narrow range
+      rollingWindow: 15000,         // 15 seconds rolling window (5 rounds)
+      rangeUpdateFrequency: 5,      // Update range every 5 rounds (15 seconds)
+      targetTier: 'fast',           // Target fast opponents (beat everyone)
+      feedbackEnabled: true,        // Auto-adjust on 3s errors
+      feedbackStep: 15,             // 15ms adjustments (fast adaptation)
+      quickStart: true,             // Start immediately with wide range
+      initialMin: 1500,             // Wide initial range
+      initialMax: 3000,
+      safetyBuffer: 10,             // 10ms buffer on edge
+      targetSuccessRate: 0.90,      // 90% success rate (faster than 95%)
+      edgeTestFrequency: 10,        // Test edge 10% of time
+      adaptive: true,               // Continuously adapt
+      
+      phase: 'fast_discovery',      // 'fast_discovery', 'discovery', 'exploitation', 'adaptive'
       discoveryAttempts: 0,
       maxDiscoveryAttempts: 20,     // Binary search completes in ~20 attempts
       
       // Binary search state
-      searchMin: 1800,
-      searchMax: 2200,
-      currentTestTiming: null,
+      searchMin: 1500,
+      searchMax: 3000,
+      currentTestTiming: 2250,      // Midpoint of initial range
       
       // Timing candidates and results
       timingResults: {},            // { timing: {attempts, successes, failures, rate} }
@@ -96,6 +113,7 @@ class FinalCompleteGameLogic {
       totalSuccesses: 0,
       totalFailures: 0,
       overallSuccessRate: 0,
+      consecutiveSuccesses: 0,      // Track consecutive successes for feedback
       
       // Adaptive testing
       lastEdgeTest: 0,
@@ -104,6 +122,18 @@ class FinalCompleteGameLogic {
       // Track last attack for result recording
       lastAttackTiming: null,
       pendingResult: false          // Whether we're waiting for attack result
+    };
+    
+    // Opponent Tracking for Auto-Range Detection
+    this.opponentTracking = {
+      enabled: false,
+      samples: [],                  // Store timing samples with timestamps
+      minSamples: 3,                // Need 3 samples before narrowing range
+      detectedMin: null,
+      detectedMax: null,
+      lastUpdate: 0,
+      lastRangeCheck: 0,
+      roundCounter: 0               // Count rounds for range update frequency
     };
   }
 
@@ -257,16 +287,124 @@ class FinalCompleteGameLogic {
     if (!this.config.aiMode) return;
     
     this.aiMode.enabled = true;
-    this.aiMode.searchMin = parseInt(this.config.aiMinTiming || 1800);
-    this.aiMode.searchMax = parseInt(this.config.aiMaxTiming || 2200);
-    this.aiMode.phase = 'discovery';
+    this.opponentTracking.enabled = true;
     
-    // Start with midpoint
-    this.aiMode.currentTestTiming = Math.floor((this.aiMode.searchMin + this.aiMode.searchMax) / 2);
+    // Quick Start: Use wide initial range
+    this.aiMode.searchMin = this.aiMode.initialMin;  // 1500ms
+    this.aiMode.searchMax = this.aiMode.initialMax;  // 3000ms
+    this.aiMode.currentTestTiming = Math.floor((this.aiMode.searchMin + this.aiMode.searchMax) / 2);  // 2250ms
+    this.aiMode.phase = 'fast_discovery';
     
-    this.addLog(this.wsNumber, `🤖 AI Mode: Starting edge detection`);
-    this.addLog(this.wsNumber, `📊 Search range: ${this.aiMode.searchMin}-${this.aiMode.searchMax}ms`);
-    console.log(`[WS${this.wsNumber}] AI Mode initialized: ${this.aiMode.searchMin}-${this.aiMode.searchMax}ms`);
+    this.addLog(this.wsNumber, `🤖 AI Mode: ENABLED with optimal defaults`);
+    this.addLog(this.wsNumber, `🚀 Quick start: Wide range (${this.aiMode.searchMin}-${this.aiMode.searchMax}ms)`);
+    this.addLog(this.wsNumber, `🎯 Auto-range: Will narrow after ${this.aiMode.autoRangeSamples} samples (${this.aiMode.autoRangeSamples * 3}s)`);
+    this.addLog(this.wsNumber, `⚡ Fast feedback: ±${this.aiMode.feedbackStep}ms adjustments`);
+    this.addLog(this.wsNumber, `🔄 Adaptive: Updates every ${this.aiMode.rangeUpdateFrequency} rounds (${this.aiMode.rangeUpdateFrequency * 3}s)`);
+    
+    console.log(`[WS${this.wsNumber}] AI Mode initialized with optimal defaults:`);
+    console.log(`  - Quick start: ${this.aiMode.searchMin}-${this.aiMode.searchMax}ms`);
+    console.log(`  - Auto-range: ${this.aiMode.autoRangeSamples} samples (${this.aiMode.autoRangeSamples * 3}s)`);
+    console.log(`  - Feedback: ±${this.aiMode.feedbackStep}ms`);
+    console.log(`  - Updates: Every ${this.aiMode.rangeUpdateFrequency} rounds`);
+  }
+  
+  // Add opponent timing sample (called when opponent appears)
+  addOpponentSample(timing) {
+    if (!this.opponentTracking.enabled) return;
+    
+    const now = Date.now();
+    
+    // Add sample with timestamp
+    this.opponentTracking.samples.push({
+      timing: timing,
+      timestamp: now
+    });
+    
+    // Filter out samples older than rolling window (15 seconds)
+    const cutoff = now - this.aiMode.rollingWindow;
+    this.opponentTracking.samples = this.opponentTracking.samples.filter(s => s.timestamp > cutoff);
+    
+    console.log(`[WS${this.wsNumber}] Opponent sample ${this.opponentTracking.samples.length}: ${timing}ms`);
+    this.addLog(this.wsNumber, `📊 Opponent sample ${this.opponentTracking.samples.length}/${this.aiMode.autoRangeSamples}: ${timing}ms`);
+    
+    // After collecting minimum samples, narrow the range
+    if (this.opponentTracking.samples.length === this.aiMode.autoRangeSamples && this.aiMode.phase === 'fast_discovery') {
+      this.narrowRangeFromSamples();
+    }
+  }
+  
+  // Narrow AI range based on collected opponent samples
+  narrowRangeFromSamples() {
+    if (this.opponentTracking.samples.length < this.aiMode.autoRangeSamples) return;
+    
+    const timings = this.opponentTracking.samples.map(s => s.timing);
+    const minTiming = Math.min(...timings);
+    const maxTiming = Math.max(...timings);
+    
+    // Add buffer around detected range
+    const newMin = Math.max(1500, minTiming - 100);
+    const newMax = Math.min(3000, maxTiming + 100);
+    
+    this.addLog(this.wsNumber, `🎯 Range narrowed after ${this.aiMode.autoRangeSamples} samples (${this.aiMode.autoRangeSamples * 3}s)`);
+    this.addLog(this.wsNumber, `📊 Old range: ${this.aiMode.searchMin}-${this.aiMode.searchMax}ms`);
+    this.addLog(this.wsNumber, `📊 New range: ${newMin}-${newMax}ms`);
+    
+    console.log(`[WS${this.wsNumber}] AI Mode: Range narrowed from ${this.aiMode.searchMin}-${this.aiMode.searchMax}ms to ${newMin}-${newMax}ms`);
+    
+    this.opponentTracking.detectedMin = newMin;
+    this.opponentTracking.detectedMax = newMax;
+    this.opponentTracking.lastUpdate = Date.now();
+    
+    // Update AI search range
+    this.aiMode.searchMin = newMin;
+    this.aiMode.searchMax = newMax;
+    this.aiMode.currentTestTiming = Math.floor((newMin + newMax) / 2);
+    this.aiMode.phase = 'discovery';  // Switch to normal discovery with narrowed range
+    
+    this.addLog(this.wsNumber, `🔍 Starting binary search in narrowed range`);
+  }
+  
+  // Check if range needs updating (called periodically)
+  checkRangeUpdate() {
+    if (!this.opponentTracking.enabled || !this.aiMode.enabled) return;
+    if (this.aiMode.phase === 'fast_discovery') return;  // Skip during initial phase
+    
+    this.opponentTracking.roundCounter++;
+    
+    // Check every N rounds (default: 5 rounds = 15 seconds)
+    if (this.opponentTracking.roundCounter < this.aiMode.rangeUpdateFrequency) return;
+    
+    this.opponentTracking.roundCounter = 0;
+    
+    // Need at least 3 recent samples
+    if (this.opponentTracking.samples.length < 3) return;
+    
+    const timings = this.opponentTracking.samples.map(s => s.timing);
+    const newMin = Math.max(1500, Math.min(...timings) - 100);
+    const newMax = Math.min(3000, Math.max(...timings) + 100);
+    
+    // Check if range changed significantly (>100ms)
+    const minChanged = this.opponentTracking.detectedMin && Math.abs(newMin - this.opponentTracking.detectedMin) > 100;
+    const maxChanged = this.opponentTracking.detectedMax && Math.abs(newMax - this.opponentTracking.detectedMax) > 100;
+    
+    if (minChanged || maxChanged) {
+      this.addLog(this.wsNumber, `🔄 Opponent timing changed!`);
+      this.addLog(this.wsNumber, `📊 Old range: ${this.opponentTracking.detectedMin}-${this.opponentTracking.detectedMax}ms`);
+      this.addLog(this.wsNumber, `📊 New range: ${newMin}-${newMax}ms`);
+      
+      console.log(`[WS${this.wsNumber}] AI Mode: Opponent range updated from ${this.opponentTracking.detectedMin}-${this.opponentTracking.detectedMax}ms to ${newMin}-${newMax}ms`);
+      
+      this.opponentTracking.detectedMin = newMin;
+      this.opponentTracking.detectedMax = newMax;
+      this.opponentTracking.lastUpdate = Date.now();
+      
+      // Reset AI discovery with new range
+      this.aiMode.searchMin = newMin;
+      this.aiMode.searchMax = newMax;
+      this.resetAIDiscovery();
+      
+      this.addLog(this.wsNumber, `🤖 Restarting AI Mode with updated range`);
+    }
   }
   
   // Get AI-determined timing
@@ -276,7 +414,12 @@ class FinalCompleteGameLogic {
       return parseInt(this.config[`attack${this.wsNumber}`] || 1940);
     }
     
-    if (this.aiMode.phase === 'discovery') {
+    // Increment round counter for range updates
+    if (this.aiMode.phase !== 'fast_discovery') {
+      this.checkRangeUpdate();
+    }
+    
+    if (this.aiMode.phase === 'fast_discovery' || this.aiMode.phase === 'discovery') {
       // Binary search phase - test current candidate
       return this.aiMode.currentTestTiming;
     } else if (this.aiMode.phase === 'exploitation') {
@@ -284,7 +427,7 @@ class FinalCompleteGameLogic {
       return this.aiMode.optimalTiming;
     } else if (this.aiMode.phase === 'adaptive') {
       // Adaptive: mostly use optimal, occasionally test edge
-      const shouldTestEdge = Math.random() * 100 < parseInt(this.config.aiEdgeTestFreq || 10);
+      const shouldTestEdge = Math.random() * 100 < this.aiMode.edgeTestFrequency;
       
       if (shouldTestEdge && this.aiMode.edgeTiming) {
         this.aiMode.lastEdgeTest = Date.now();
@@ -307,8 +450,10 @@ class FinalCompleteGameLogic {
     this.aiMode.totalAttempts++;
     if (success) {
       this.aiMode.totalSuccesses++;
+      this.aiMode.consecutiveSuccesses++;
     } else {
       this.aiMode.totalFailures++;
+      this.aiMode.consecutiveSuccesses = 0;  // Reset on failure
     }
     this.aiMode.overallSuccessRate = this.aiMode.totalSuccesses / this.aiMode.totalAttempts;
     
@@ -333,8 +478,30 @@ class FinalCompleteGameLogic {
     
     console.log(`[WS${this.wsNumber}] AI Result: ${timing}ms → ${success ? 'SUCCESS' : 'FAIL'} (${Math.round(result.rate * 100)}% over ${result.attempts} attempts)`);
     
+    // FEEDBACK ADJUSTMENT (±15ms on errors/successes)
+    if (this.aiMode.feedbackEnabled && (this.aiMode.phase === 'adaptive' || this.aiMode.phase === 'exploitation')) {
+      if (!success) {
+        // 3s error - too fast, slow down
+        const adjusted = timing + this.aiMode.feedbackStep;
+        if (adjusted <= this.aiMode.searchMax) {
+          this.aiMode.optimalTiming = adjusted;
+          this.addLog(this.wsNumber, `⚠️ Feedback: 3s error → Adjusting ${timing}ms to ${adjusted}ms (+${this.aiMode.feedbackStep}ms)`);
+          console.log(`[WS${this.wsNumber}] AI Feedback: Slowed down to ${adjusted}ms due to 3s error`);
+        }
+      } else if (this.aiMode.consecutiveSuccesses >= 5) {
+        // 5 consecutive successes - try faster
+        const adjusted = timing - this.aiMode.feedbackStep;
+        if (adjusted >= this.aiMode.searchMin) {
+          this.aiMode.optimalTiming = adjusted;
+          this.aiMode.consecutiveSuccesses = 0;  // Reset counter
+          this.addLog(this.wsNumber, `✅ Feedback: 5 successes → Testing ${adjusted}ms (-${this.aiMode.feedbackStep}ms)`);
+          console.log(`[WS${this.wsNumber}] AI Feedback: Trying faster at ${adjusted}ms after 5 successes`);
+        }
+      }
+    }
+    
     // Process based on phase
-    if (this.aiMode.phase === 'discovery') {
+    if (this.aiMode.phase === 'fast_discovery' || this.aiMode.phase === 'discovery') {
       this.processDiscoveryResult(timing, success);
     } else if (this.aiMode.phase === 'adaptive') {
       this.processAdaptiveResult(timing, success);
@@ -395,9 +562,9 @@ class FinalCompleteGameLogic {
   
   // Finalize edge detection
   finalizeEdge() {
-    // Find fastest timing with success rate >= target
-    const targetRate = parseInt(this.config.aiTargetSuccessRate || 95) / 100;
-    const safetyBuffer = parseInt(this.config.aiSafetyBuffer || 10);
+    // Use hardcoded optimal defaults
+    const targetRate = this.aiMode.targetSuccessRate;  // 0.90 (90%)
+    const safetyBuffer = this.aiMode.safetyBuffer;      // 10ms
     
     let bestTiming = null;
     let bestRate = 0;
@@ -437,8 +604,8 @@ class FinalCompleteGameLogic {
       this.addLog(this.wsNumber, `⚡ AI: Using ${this.aiMode.optimalTiming}ms (${bestTiming}ms + ${safetyBuffer}ms buffer)`);
       console.log(`[WS${this.wsNumber}] AI Mode: Edge=${bestTiming}ms, Optimal=${this.aiMode.optimalTiming}ms`);
       
-      // Switch to adaptive phase if enabled
-      if (this.config.aiAdaptive) {
+      // Always use adaptive mode (hardcoded default)
+      if (this.aiMode.adaptive) {
         this.aiMode.phase = 'adaptive';
         this.addLog(this.wsNumber, `🔄 AI: Switching to adaptive mode`);
       } else {
@@ -455,7 +622,7 @@ class FinalCompleteGameLogic {
   // Process adaptive phase result
   processAdaptiveResult(timing, success) {
     // Check if we need to re-run discovery
-    const targetRate = parseInt(this.config.aiTargetSuccessRate || 95) / 100;
+    const targetRate = this.aiMode.targetSuccessRate;  // 0.90 (90%)
     
     if (this.aiMode.overallSuccessRate < targetRate * 0.9) {
       // Success rate dropped significantly, re-run discovery
@@ -474,7 +641,7 @@ class FinalCompleteGameLogic {
       const recentEdgeSuccess = this.aiMode.edgeTestResults.filter(r => r).length / this.aiMode.edgeTestResults.length;
       if (this.aiMode.edgeTestResults.length >= 5 && recentEdgeSuccess >= 0.8) {
         // Edge is stable, can use it
-        const safetyBuffer = parseInt(this.config.aiSafetyBuffer || 10);
+        const safetyBuffer = this.aiMode.safetyBuffer;  // 10ms
         const newOptimal = this.aiMode.edgeTiming + Math.floor(safetyBuffer / 2);
         if (newOptimal < this.aiMode.optimalTiming) {
           this.aiMode.optimalTiming = newOptimal;
@@ -488,14 +655,16 @@ class FinalCompleteGameLogic {
   resetAIDiscovery() {
     this.aiMode.phase = 'discovery';
     this.aiMode.discoveryAttempts = 0;
-    this.aiMode.searchMin = parseInt(this.config.aiMinTiming || 1800);
-    this.aiMode.searchMax = parseInt(this.config.aiMaxTiming || 2200);
+    // Use current detected range or initial defaults
+    this.aiMode.searchMin = this.opponentTracking.detectedMin || this.aiMode.initialMin;
+    this.aiMode.searchMax = this.opponentTracking.detectedMax || this.aiMode.initialMax;
     this.aiMode.currentTestTiming = Math.floor((this.aiMode.searchMin + this.aiMode.searchMax) / 2);
     this.aiMode.timingResults = {};
     this.aiMode.totalAttempts = 0;
     this.aiMode.totalSuccesses = 0;
     this.aiMode.totalFailures = 0;
     this.aiMode.overallSuccessRate = 0;
+    this.aiMode.consecutiveSuccesses = 0;
   }
   
   // Get AI statistics for API/logging
@@ -2047,18 +2216,18 @@ class FinalCompleteGameLogic {
         return;
       }
 
-      // Check for 3-second event (TIMER SHIFT TRIGGER!)
+      // Check for 3-second error (TOO SLOW!)
       if (snippets.length >= 7 && snippets[6] === "3s") {
         this.threesec = true;
         this.consecutiveErrors++;  // Track for adaptive step size
         
-        // AI Mode: Record failure
+        // AI Mode: Record FAILURE (we were too slow - 3s error)
         if (this.aiMode.enabled && this.aiMode.pendingResult && this.aiMode.lastAttackTiming) {
           this.recordAIResult(this.aiMode.lastAttackTiming, false);
           this.aiMode.pendingResult = false;
         }
         this.consecutiveSuccesses = 0;  // Reset success counter
-        this.addLog(this.wsNumber, `⏰ 3-second error (attempt #${this.consecutiveErrors})`);
+        this.addLog(this.wsNumber, `❌ 3-second error - Too slow!`);
         
         // QUICK FIX #2: Only adjust relevant timing based on status
         if (this.config.timershift) {
@@ -2075,16 +2244,39 @@ class FinalCompleteGameLogic {
           }
         }
       } else if (this.aiMode.enabled && this.aiMode.pendingResult && this.aiMode.lastAttackTiming) {
-        // AI Mode: If we got 850 message and no 3s error, it's a success
+        // AI Mode: No 3s error = timing was fast enough (SUCCESS for timing optimization)
         this.recordAIResult(this.aiMode.lastAttackTiming, true);
         this.aiMode.pendingResult = false;
       }
       
-      // Check for success event (TIMER SHIFT DECREMENT!)
+      // Check for success event (we actually imprisoned someone!)
       if (snippets.length >= 4 && snippets[3] === "allows") {
         this.consecutiveErrors = 0;  // Reset error counter
         this.consecutiveSuccesses++;  // Track successes
-        this.addLog(this.wsNumber, `✅ Success #${this.consecutiveSuccesses}!`);
+        this.addLog(this.wsNumber, `✅ Success - Imprisoned target!`);
+        
+        // OPPONENT TRACKING: When we successfully imprison, infer opponent timing
+        if (this.opponentTracking.enabled && this.aiMode.lastAttackTiming) {
+          // We WON at timing X → Opponent was SLOWER than us
+          // Opponent likely used timing between X and X+200ms
+          const ourTiming = this.aiMode.lastAttackTiming;
+          const inferredMin = ourTiming;
+          const inferredMax = ourTiming + 200;
+          const inferredOpponentTiming = inferredMin + Math.floor(Math.random() * (inferredMax - inferredMin));
+          
+          this.addOpponentSample(inferredOpponentTiming);
+          console.log(`[WS${this.wsNumber}] Opponent timing inferred: ${inferredOpponentTiming}ms (we won at ${ourTiming}ms, opponent was slower)`);
+        }
+      } else if (!snippets[6]?.includes("3s") && this.aiMode.enabled && this.aiMode.lastAttackTiming && this.opponentTracking.enabled) {
+        // No success and no 3s error → Someone else won (opponent was faster)
+        const ourTiming = this.aiMode.lastAttackTiming;
+        const inferredMin = ourTiming - 200;
+        const inferredMax = ourTiming;
+        const inferredOpponentTiming = inferredMin + Math.floor(Math.random() * (inferredMax - inferredMin));
+        
+        this.addOpponentSample(inferredOpponentTiming);
+        console.log(`[WS${this.wsNumber}] Opponent timing inferred: ${inferredOpponentTiming}ms (opponent won, we used ${ourTiming}ms, opponent was faster)`);
+      }
         
         // QUICK FIX #2: Only adjust relevant timing based on status
         if (this.config.timershift) {

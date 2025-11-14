@@ -90,14 +90,8 @@ let appState = {
     rotateRC: false,
     // Smart Mode options (NEW)
     roundRobin: false,  // Enable round robin target selection in smart mode
-    // AI Mode options (NEW - Competitive Edge Detection)
-    aiMode: false,              // Enable AI edge detection
-    aiMinTiming: 1800,          // Minimum timing to test (ms)
-    aiMaxTiming: 2200,          // Maximum timing to test (ms)
-    aiSafetyBuffer: 10,         // Safety buffer added to edge (ms)
-    aiTargetSuccessRate: 95,    // Target success rate (percentage 0-100)
-    aiEdgeTestFreq: 10,         // Edge test frequency (percentage 0-100)
-    aiAdaptive: true            // Keep testing edge vs lock to optimal
+    // AI Mode - Simplified (AUTO with optimal defaults)
+    aiMode: false              // Enable AI Mode: Auto-detect opponent timing and optimize (all other settings are optimal defaults)
   },
   logs: {
     log1: [],
