@@ -20,6 +20,39 @@ let mainWindow;
 // Express Server Setup
 const apiServer = express();
 apiServer.use(bodyParser.json());
+
+// CORS Configuration
+apiServer.use((req, res, next) => {
+  const allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:3000'
+  ];
+  
+  const origin = req.headers.origin;
+  
+  // Allow specific localhost origins
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  // Allow any loca.lt subdomain (for localtunnel)
+  else if (origin && origin.match(/^https?:\/\/.*\.loca\.lt$/)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  
+  next();
+});
+
 apiServer.use(express.static(path.join(__dirname, 'public')));
 // Add support for serving the GUI in browser
 apiServer.use(express.static(path.join(__dirname)));
