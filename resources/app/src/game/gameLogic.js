@@ -614,9 +614,16 @@ class GameLogic {
     }
 
     handle900Message(ws, snippets, text) {
-        this.currentPlanet = snippets[1];
-        this.inPrison = this.currentPlanet.startsWith("Prison");
+        const planetInfo = snippets.slice(1).join(" ");
+        const planet = snippets[1];
+        
+        this.currentPlanet = planet;
+        this.inPrison = planet && planet.startsWith("Prison");
+        
+        this.addLog(this.wsNumber, `📍 Planet: ${planetInfo}`);
+        
         if (this.inPrison && this.config.autorelease) {
+            this.addLog(this.wsNumber, `🔓 Prison detected - attempting escape`);
             setTimeout(() => this.escapeAll(), 1000);
         }
     }

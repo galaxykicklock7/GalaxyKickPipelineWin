@@ -135,6 +135,34 @@ if (btnRelease) {
   });
 }
 
+// Fly Button (Join/Rejoin Planet)
+const btnFly = document.getElementById("plntgo");
+if (btnFly) {
+  btnFly.addEventListener("click", async () => {
+    try {
+      const planet = val("planet");
+      if (!planet || planet.trim() === "") {
+        alert("Please enter a planet name");
+        return;
+      }
+      
+      console.log(`Flying to planet: ${planet}`);
+      const response = await axios.post(`${API_URL}/fly`, { planet: planet.trim() });
+      console.log("Fly response:", response.data);
+      
+      if (response.data.success) {
+        console.log(`✅ ${response.data.message}`);
+      } else {
+        console.error("Fly failed:", response.data);
+        alert("Failed to fly: " + response.data.message);
+      }
+    } catch (error) {
+      console.error("Error flying:", error);
+      alert("Failed to fly: " + error.message);
+    }
+  });
+}
+
 // Stats / Logs Polling
 setInterval(async () => {
   try {

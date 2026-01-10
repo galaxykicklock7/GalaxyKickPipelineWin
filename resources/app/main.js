@@ -148,6 +148,8 @@ apiServer.post('/api/send', (req, res) => {
 });
 
 apiServer.post('/api/fly', (req, res) => {
+  console.log('[API] /api/fly called with body:', req.body);
+  
   const { planet } = req.body;
   if (!planet) {
     return res.status(400).json({ success: false, message: 'planet required' });
@@ -160,10 +162,14 @@ apiServer.post('/api/fly', (req, res) => {
   let errors = [];
   let reflown = 0; // Count of connections already on the same planet
 
+  console.log('[API] Processing websockets:', Object.keys(appState.websockets));
+
   Object.keys(appState.websockets).forEach(key => {
     try {
       const ws = appState.websockets[key];
       const wsNum = parseInt(key.replace('ws', ''));
+      
+      console.log(`[API] Processing ${key}: ws=${!!ws}, readyState=${ws?.readyState}`);
       
       if (!ws) {
         errors.push(`WS${wsNum}: Not initialized`);
@@ -180,6 +186,8 @@ apiServer.post('/api/fly', (req, res) => {
       const currentPlanet = appState.gameLogic[logicKey]?.currentPlanet;
       const isRefly = currentPlanet === planet;
       
+      console.log(`[API] WS${wsNum}: currentPlanet=${currentPlanet}, isRefly=${isRefly}`);
+      
       if (isRefly) {
         reflown++;
         addLog(wsNum, `🔄 Reflying to ${planet} (already there)`);
@@ -190,6 +198,7 @@ apiServer.post('/api/fly', (req, res) => {
       // Send JOIN command (works for both new planet and refly)
       // IRC protocol: JOIN automatically parts from current channel if different
       ws.send(`JOIN ${planet}\r\n`);
+      console.log(`[API] WS${wsNum}: Sent JOIN ${planet}`);
       sent++;
       
       // Update gameLogic planet tracking
@@ -199,6 +208,7 @@ apiServer.post('/api/fly', (req, res) => {
       }
     } catch (error) {
       const wsNum = key.replace('ws', '');
+      console.error(`[API] Error processing ${key}:`, error);
       errors.push(`WS${wsNum}: ${error.message}`);
     }
   });
@@ -216,6 +226,7 @@ apiServer.post('/api/fly', (req, res) => {
     response.errors = errors;
   }
   
+  console.log('[API] /api/fly response:', response);
   res.json(response);
 });
 
