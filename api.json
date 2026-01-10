@@ -74,3 +74,5 @@ curl -X POST https://best-backend.loca.lt/api/configure \
   "reconnect": 500,
   "aiMode": false
 }'
+
+curl -X POST http://localhost:3000/api/connect -H "Content-Type: application/json" -d "{\"rc1\": \"onfoqk2ff1\",\"rc2\": \"\",\"rc3\": \"\",\"rc4\": \"\",\"rc5\": \"\",\"rcl1\": \"\",\"rcl2\": \"\",\"rcl3\": \"\",\"rcl4\": \"\",\"rcl5\": \"\",\"rotateRC\": false,\"planet\": \"THE_BOT\",\"device\": \"312\",\"autorelease\": true,\"exitting\": true,\"sleeping\": true,\"smart\": true,\"roundRobin\": false,\"lowsecmode\": false,\"kickmode\": true,\"modena\": false,\"kickbybl\": true,\"dadplus\": false,\"kickall\": false,\"blacklist\": \"AkaZa_\",\"gangblacklist\": \"\",\"kblacklist\": \"\",\"kgangblacklist\": \"\",\"attack1\": 1700,\"attack2\": 1700,\"attack3\": 1700,\"attack4\": 1700,\"attack5\": 1700,\"waiting1\": 1725,\"waiting2\": 1725,\"waiting3\": 1725,\"waiting4\": 1725,\"waiting5\": 1725,\"timershift\": false,\"incrementvalue\": 5,\"decrementvalue\": 5,\"minatk\": 1000,\"maxatk\": 3000,\"mindef\": 1000,\"maxdef\": 3000,\"reconnect\": 500}"

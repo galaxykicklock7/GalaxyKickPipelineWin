@@ -119,6 +119,14 @@ class GameLogic {
             parseInt(this.config[`attack${this.wsNumber}`] || 1940);
     }
 
+    getTimingLabel(mode) {
+        if (this.config.timershift) {
+            return mode === "defense" ? "Auto Defense" : "Auto Attack";
+        } else {
+            return mode === "defense" ? "Defense" : "Attack";
+        }
+    }
+
     incrementAttack() { this._adjustTiming(`attack${this.wsNumber}`, true); }
     decrementAttack() { this._adjustTiming(`attack${this.wsNumber}`, false); }
     incrementDefence() { this._adjustTiming(`waiting${this.wsNumber}`, true); }
@@ -473,7 +481,7 @@ class GameLogic {
                 const attackTime = parseInt(this.config[`attack${this.wsNumber}`] || 1940);
                 const waitingTime = parseInt(this.config[`waiting${this.wsNumber}`] || 1910);
                 const timing = this.config.timershift ? Math.round((attackTime + waitingTime) / 2) : waitingTime;
-                const timingLabel = this.config.timershift ? "Auto" : "Defense";
+                const timingLabel = this.getTimingLabel("defense");
 
                 this.userFound = true;
                 this.useridattack = matchedId;
