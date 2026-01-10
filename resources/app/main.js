@@ -4,7 +4,7 @@ const axios = require("axios");
 const WebSocketClient = require("ws");
 const express = require("express");
 const bodyParser = require("body-parser");
-const FinalCompleteGameLogic = require("./game-logic-final.js");
+const FinalCompleteGameLogic = require("./game-logic/index.js");
 process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
 
 // Headless mode support
