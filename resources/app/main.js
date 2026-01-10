@@ -117,11 +117,16 @@ apiServer.post('/api/connect', (req, res) => {
 });
 
 apiServer.post('/api/disconnect', (req, res) => {
-  appState.connected = false;
-  appState.config.connected = false;
+  try {
+    appState.connected = false;
+    appState.config.connected = false;
 
-  disconnectAll();
-  res.json({ success: true, message: 'Disconnected all' });
+    disconnectAll();
+    res.json({ success: true, message: 'Disconnected all' });
+  } catch (error) {
+    console.error('Disconnect error:', error);
+    res.status(500).json({ success: false, message: 'Disconnect failed', error: error.message });
+  }
 });
 
 apiServer.post('/api/send', (req, res) => {
@@ -148,20 +153,70 @@ apiServer.post('/api/fly', (req, res) => {
     return res.status(400).json({ success: false, message: 'planet required' });
   }
 
+  // Update config planet for all connections
   appState.config.planet = planet;
+  
   let sent = 0;
+  let errors = [];
+  let reflown = 0; // Count of connections already on the same planet
 
   Object.keys(appState.websockets).forEach(key => {
-    const ws = appState.websockets[key];
-    if (ws && ws.readyState === ws.OPEN) {
+    try {
+      const ws = appState.websockets[key];
+      const wsNum = parseInt(key.replace('ws', ''));
+      
+      if (!ws) {
+        errors.push(`WS${wsNum}: Not initialized`);
+        return;
+      }
+      
+      if (ws.readyState !== ws.OPEN) {
+        errors.push(`WS${wsNum}: Not connected (state: ${ws.readyState})`);
+        return;
+      }
+      
+      // Check if already on the same planet
+      const logicKey = `logic${wsNum}`;
+      const currentPlanet = appState.gameLogic[logicKey]?.currentPlanet;
+      const isRefly = currentPlanet === planet;
+      
+      if (isRefly) {
+        reflown++;
+        addLog(wsNum, `🔄 Reflying to ${planet} (already there)`);
+      } else {
+        addLog(wsNum, `🚀 Flying to ${planet}${currentPlanet ? ` (from ${currentPlanet})` : ''}`);
+      }
+      
+      // Send JOIN command (works for both new planet and refly)
+      // IRC protocol: JOIN automatically parts from current channel if different
       ws.send(`JOIN ${planet}\r\n`);
-      const wsNum = key.replace('ws', '');
-      addLog(parseInt(wsNum), `🚀 Flying to ${planet}`);
       sent++;
+      
+      // Update gameLogic planet tracking
+      if (appState.gameLogic[logicKey]) {
+        appState.gameLogic[logicKey].currentPlanet = planet;
+        appState.gameLogic[logicKey].inPrison = planet.startsWith('Prison');
+      }
+    } catch (error) {
+      const wsNum = key.replace('ws', '');
+      errors.push(`WS${wsNum}: ${error.message}`);
     }
   });
 
-  res.json({ success: true, message: `Sent JOIN to ${sent} connection(s)`, planet });
+  const response = {
+    success: sent > 0,
+    message: `Sent JOIN to ${sent} connection(s)${reflown > 0 ? ` (${reflown} refly)` : ''}`,
+    planet,
+    sent,
+    reflown,
+    total: Object.keys(appState.websockets).length
+  };
+  
+  if (errors.length > 0) {
+    response.errors = errors;
+  }
+  
+  res.json(response);
 });
 
 apiServer.post('/api/release', (req, res) => {
@@ -200,23 +255,29 @@ function connectAll() {
 // Helper: Disconnect All
 function disconnectAll() {
   Object.keys(appState.websockets).forEach(key => {
-    const ws = appState.websockets[key];
-    if (ws) {
-      if (ws.readyState === ws.OPEN) {
-        ws.send("QUIT :ds\r\n");
-        ws.close(1000, "User disconnect");
-      } else {
-        try { ws.terminate(); } catch (e) { }
+    try {
+      const ws = appState.websockets[key];
+      if (ws) {
+        if (ws.readyState === ws.OPEN) {
+          ws.send("QUIT :ds\r\n");
+          ws.close(1000, "User disconnect");
+        } else {
+          try { ws.terminate(); } catch (e) { }
+        }
       }
-    }
-    appState.websockets[key] = null;
-    appState.wsStatus[key] = false;
+      appState.websockets[key] = null;
+      appState.wsStatus[key] = false;
 
-    // Cleanup GameLogic
-    const logicKey = key.replace('ws', 'logic');
-    if (appState.gameLogic[logicKey]) {
-      appState.gameLogic[logicKey].destroy();
-      appState.gameLogic[logicKey] = null;
+      // Cleanup GameLogic
+      const logicKey = key.replace('ws', 'logic');
+      if (appState.gameLogic[logicKey]) {
+        if (typeof appState.gameLogic[logicKey].destroy === 'function') {
+          appState.gameLogic[logicKey].destroy();
+        }
+        appState.gameLogic[logicKey] = null;
+      }
+    } catch (error) {
+      console.error(`Error disconnecting ${key}:`, error);
     }
   });
 }

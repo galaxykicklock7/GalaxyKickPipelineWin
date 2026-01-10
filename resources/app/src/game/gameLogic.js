@@ -699,6 +699,43 @@ class GameLogic {
             this.isOffSleepActive = false;
         }, delay);
     }
+
+    destroy() {
+        if (this.timeout) {
+            clearTimeout(this.timeout);
+            this.timeout = null;
+        }
+        if (this.reconnectTimeoutId) {
+            clearTimeout(this.reconnectTimeoutId);
+            this.reconnectTimeoutId = null;
+        }
+        if (this.innerTimeouts && this.innerTimeouts.length > 0) {
+            this.innerTimeouts.forEach(t => clearTimeout(t));
+            this.innerTimeouts = [];
+        }
+        this.resetState();
+    }
+
+    getState() {
+        return {
+            wsNumber: this.wsNumber,
+            id: this.id,
+            username: this.finalusername,
+            targetids: [...this.targetids],
+            targetnames: [...this.targetnames],
+            attackids: [...this.attackids],
+            attacknames: [...this.attacknames],
+            useridtarget: this.useridtarget,
+            useridattack: this.useridattack,
+            userFound: this.userFound,
+            status: this.status,
+            threesec: this.threesec,
+            targetCount: this.targetids.length,
+            attackCount: this.attackids.length,
+            currentAttackTiming: this.config[`attack${this.wsNumber}`],
+            currentWaitingTiming: this.config[`waiting${this.wsNumber}`]
+        };
+    }
 }
 
 module.exports = GameLogic;
