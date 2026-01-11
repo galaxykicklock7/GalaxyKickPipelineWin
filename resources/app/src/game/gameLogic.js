@@ -345,6 +345,26 @@ class GameLogic {
         console.log(`[WS${this.wsNumber}] autorelease config: ${this.config.autorelease}`);
         this.addLog(this.wsNumber, `📋 353 - Users on ${planetName || 'planet'}`);
         
+        // Extract founder ID from 353 message (user with + prefix)
+        // Format: "353 = #channel :+username userid @supervisor userid ..."
+        // The + prefix indicates the planet founder/owner
+        if (!this.founderUserId) {
+            const parts = text.split(" ");
+            for (let i = 0; i < parts.length - 1; i++) {
+                // Look for username with + prefix
+                if (parts[i].startsWith("+")) {
+                    // Next part should be the user ID
+                    const nextPart = parts[i + 1];
+                    if (nextPart && !isNaN(nextPart) && nextPart.length >= 6) {
+                        this.founderUserId = nextPart;
+                        console.log(`[WS${this.wsNumber}] 353 - Extracted founder ID: ${this.founderUserId}`);
+                        this.addLog(this.wsNumber, `👑 Planet founder detected: ${this.founderUserId}`);
+                        break;
+                    }
+                }
+            }
+        }
+        
         if (planetName) {
             this.currentPlanet = planetName;
             this.inPrison = planetName.slice(0, 6) === "Prison";
