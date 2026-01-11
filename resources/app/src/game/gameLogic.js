@@ -215,8 +215,9 @@ class GameLogic {
         // Clear buffered 353 messages and reset founder flag
         this.pending353Messages = [];
         this.pendingJoinMessages = [];
-        this.founderMessageReceived = false;
-        // Note: Keep this.founderUserId - it persists across reconnects to same planet
+        // DON'T reset founderMessageReceived or founderUserId
+        // They persist across reconnects to the same planet
+        // Note: this.founderUserId and this.founderMessageReceived persist
 
         this.isOffSleepActive = false;
         this.consecutiveErrors = 0;
@@ -399,7 +400,7 @@ class GameLogic {
                             
                             this.founderWaitTimeout = null;
                         }
-                    }, 500); // 500ms timeout
+                    }, 1000); // Increased from 500ms to 1000ms for slower connections
                 }
                 
                 return; // Don't process now, wait for FOUNDER or timeout
@@ -1174,7 +1175,7 @@ class GameLogic {
                             
                             this.founderWaitTimeout = null;
                         }
-                    }, 500);
+                    }, 1000); // Increased from 500ms to 1000ms for slower connections
                 }
                 
                 return; // Don't process now, wait for FOUNDER or timeout
@@ -1791,6 +1792,7 @@ class GameLogic {
             
             // CRITICAL: Cancel ANY scheduled attack if target is founder
             // This handles the case where attack was scheduled before FOUNDER message arrived
+            // OR when FOUNDER arrives after timeout (late FOUNDER message)
             if (this.useridattack === founderId || this.useridtarget === founderId) {
                 console.log(`[WS${this.wsNumber}] ⚠️ CANCELLING scheduled attack on founder!`);
                 this.addLog(this.wsNumber, `🛑 Cancelled attack - target is planet owner`);
@@ -1804,9 +1806,10 @@ class GameLogic {
                 
                 // Clear all nested timeouts (for kick/imprison modes)
                 if (this.innerTimeouts && this.innerTimeouts.length > 0) {
+                    const count = this.innerTimeouts.length;
                     this.innerTimeouts.forEach(t => clearTimeout(t));
                     this.innerTimeouts = [];
-                    console.log(`[WS${this.wsNumber}] Cleared ${this.innerTimeouts.length} nested timeouts`);
+                    console.log(`[WS${this.wsNumber}] Cleared ${count} nested timeouts`);
                 }
                 
                 // Reset attack state
@@ -1815,15 +1818,8 @@ class GameLogic {
                 this.useridtarget = null;
             }
             
-            // Also check if founder is in any scheduled actions (for kick/imprison modes)
-            // Clear the main timeout if it exists (might be for founder)
-            if (this.timeout && (this.useridattack === founderId || this.useridtarget === founderId)) {
-                clearTimeout(this.timeout);
-                this.timeout = null;
-                console.log(`[WS${this.wsNumber}] Cleared main timeout (founder protection)`);
-            }
-            
             // Process any buffered 353 messages now that we know the founder
+            // Only process if buffers exist (not already processed by timeout)
             if (this.pending353Messages.length > 0) {
                 console.log(`[WS${this.wsNumber}] Processing ${this.pending353Messages.length} buffered 353 message(s)`);
                 this.addLog(this.wsNumber, `🔄 Processing buffered 353 messages with founder info`);
