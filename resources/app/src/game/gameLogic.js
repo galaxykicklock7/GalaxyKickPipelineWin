@@ -69,6 +69,7 @@ class GameLogic {
         this.pending353Messages = []; // Buffer 353 messages until founder known
         this.pendingJoinMessages = []; // Buffer JOIN messages until founder known
         this.founderMessageReceived = false;
+        this.founderWaitTimeout = null; // Single timeout for waiting for FOUNDER
     }
 
     // Helper methods
@@ -355,43 +356,54 @@ class GameLogic {
         console.log(`[WS${this.wsNumber}] 353 message received - Planet: ${planetName}`);
         console.log(`[WS${this.wsNumber}] Founder known: ${this.founderMessageReceived}, Founder ID: ${this.founderUserId || 'NONE'}`);
         
-        // Check if founder is present in this 353 message
-        // Look for pattern that indicates founder will send FOUNDER message
-        // If founder is on planet, we should wait for FOUNDER message
-        // If founder is NOT on planet, process immediately
-        
-        let founderPresentOnPlanet = false;
-        
-        // Parse the 353 message to see if there are any users
-        // If there are users, check if we've received FOUNDER message before
-        // On first join, if users present, founder might be there
-        const hasUsers = text.match(/\d{6,}/); // Check if there are any user IDs
-        
-        if (hasUsers && !this.founderMessageReceived && !this.founderUserId) {
-            // First time on this planet with users present
-            // Wait briefly for FOUNDER message (it comes right after 353)
-            console.log(`[WS${this.wsNumber}] 353 - First join with users, waiting for FOUNDER message`);
-            this.addLog(this.wsNumber, `⏳ Checking for planet owner...`);
-            this.pending353Messages.push({ ws, snippets, text });
+        // OPTIMIZATION: If we already know the founder ID, skip buffering
+        // Founder ID persists across reconnects to the same planet
+        if (this.founderUserId) {
+            console.log(`[WS${this.wsNumber}] 353 - Founder already known (${this.founderUserId}), processing immediately`);
+            // Process immediately without buffering
+        }
+        // FIRST TIME: Buffer if we don't know founder yet
+        else if (!this.founderMessageReceived) {
+            const hasUsers = text.match(/\d{6,}/); // Check if there are any user IDs
             
-            // Short timeout (500ms) - FOUNDER message comes immediately after 353
-            setTimeout(() => {
-                if (!this.founderMessageReceived && this.pending353Messages.length > 0) {
-                    console.log(`[WS${this.wsNumber}] 353 - No FOUNDER message received, founder not on planet`);
-                    this.addLog(this.wsNumber, `✅ Planet owner not present`);
-                    this.founderMessageReceived = true; // Mark as received (founder not here)
-                    
-                    // Process all buffered messages
-                    while (this.pending353Messages.length > 0) {
-                        const buffered = this.pending353Messages.shift();
-                        if (buffered) {
-                            this.handle353Message(buffered.ws, buffered.snippets, buffered.text);
+            if (hasUsers) {
+                // First time on this planet with users present
+                // Wait briefly for FOUNDER message (it comes right after 353)
+                console.log(`[WS${this.wsNumber}] 353 - First join with users, waiting for FOUNDER message`);
+                this.addLog(this.wsNumber, `⏳ Checking for planet owner...`);
+                this.pending353Messages.push({ ws, snippets, text });
+                
+                // Only set timeout if not already set
+                if (!this.founderWaitTimeout) {
+                    this.founderWaitTimeout = setTimeout(() => {
+                        if (!this.founderMessageReceived && (this.pending353Messages.length > 0 || this.pendingJoinMessages.length > 0)) {
+                            console.log(`[WS${this.wsNumber}] Timeout - No FOUNDER message received, founder not on planet`);
+                            this.addLog(this.wsNumber, `✅ Planet owner not present`);
+                            this.founderMessageReceived = true; // Mark as received (founder not here)
+                            
+                            // Process all buffered 353 messages
+                            while (this.pending353Messages.length > 0) {
+                                const buffered = this.pending353Messages.shift();
+                                if (buffered) {
+                                    this.handle353Message(buffered.ws, buffered.snippets, buffered.text);
+                                }
+                            }
+                            
+                            // Process all buffered JOIN messages
+                            while (this.pendingJoinMessages.length > 0) {
+                                const buffered = this.pendingJoinMessages.shift();
+                                if (buffered) {
+                                    this.handleJoinMessage(buffered.ws, buffered.snippets, buffered.text);
+                                }
+                            }
+                            
+                            this.founderWaitTimeout = null;
                         }
-                    }
+                    }, 500); // 500ms timeout
                 }
-            }, 500); // Reduced to 500ms since FOUNDER comes immediately
-            
-            return; // Don't process now, wait for FOUNDER or timeout
+                
+                return; // Don't process now, wait for FOUNDER or timeout
+            }
         }
         
         console.log(`[WS${this.wsNumber}] autorelease config: ${this.config.autorelease}`);
@@ -477,25 +489,7 @@ class GameLogic {
                 return;
             }
             
-            // ===== CRITICAL: Extract founder ID from 353 message FIRST =====
-            let founderIdFromMessage = null;
-            
-            try {
-                const plusMatch = text.match(/\+([^\s]+)\s+(\d{6,})/);
-                if (plusMatch && plusMatch[2]) {
-                    founderIdFromMessage = plusMatch[2];
-                    console.log(`[WS${this.wsNumber}] 353 BAN - Extracted founder from + prefix: ${founderIdFromMessage}`);
-                }
-            } catch (extractError) {
-                console.error(`[WS${this.wsNumber}] Error extracting founder from 353:`, extractError);
-            }
-            
-            if (founderIdFromMessage && !this.founderUserId) {
-                this.founderUserId = founderIdFromMessage;
-                console.log(`[WS${this.wsNumber}] 353 BAN - Set founder ID: ${this.founderUserId}`);
-                this.addLog(this.wsNumber, `👑 Planet founder: ${this.founderUserId}`);
-            }
-            
+            // Log current founder ID (from FOUNDER message - the only reliable source)
             console.log(`[WS${this.wsNumber}] 353 BAN - Using founder ID for filtering: ${this.founderUserId || 'NONE'}`);
 
             console.log(`[WS${this.wsNumber}] 353 BAN mode - Processing user list`);
@@ -509,7 +503,7 @@ class GameLogic {
             const integers = membersarr.filter(item => !isNaN(item) && item !== "-" && item.length >= 6);
             
             console.log(`[WS${this.wsNumber}] 353 BAN - Found ${integers.length} user IDs`);
-            console.log(`[WS${this.wsNumber}] 353 BAN - Self ID: ${this.useridg}, Founder ID: ${this.founderUserId}`);
+            console.log(`[WS${this.wsNumber}] 353 BAN - Self ID: ${this.useridg}, Founder ID: ${this.founderUserId || 'NONE'}`);
             
             const usersToBan = [];
             
@@ -660,52 +654,7 @@ class GameLogic {
                 return;
             }
             
-            // ===== CRITICAL: Extract founder ID from 353 message FIRST =====
-            // This ensures we know who the founder is BEFORE processing any users
-            // Format: "353 = #channel :+founderName founderId @supervisor superId ..."
-            let founderIdFromMessage = null;
-            
-            try {
-                // Method 1: Look for + prefix (most reliable)
-                const plusMatch = text.match(/\+([^\s]+)\s+(\d{6,})/);
-                if (plusMatch && plusMatch[2]) {
-                    founderIdFromMessage = plusMatch[2];
-                    console.log(`[WS${this.wsNumber}] 353 - Extracted founder from + prefix: ${founderIdFromMessage}`);
-                }
-                
-                // Method 2: If no + prefix found, look in the raw text for pattern
-                if (!founderIdFromMessage) {
-                    // Split and look for first valid user ID after channel name
-                    const parts = text.split(/\s+/);
-                    const channelIndex = parts.findIndex(p => p.includes(channelName));
-                    if (channelIndex > -1) {
-                        // Look for first numeric ID after channel (usually founder)
-                        for (let i = channelIndex + 1; i < parts.length; i++) {
-                            const part = parts[i].replace(/[+@:]/g, ''); // Remove prefixes
-                            if (!isNaN(part) && part.length >= 6) {
-                                // Check if previous part looks like a username (not numeric)
-                                const prevPart = parts[i - 1]?.replace(/[+@:]/g, '');
-                                if (prevPart && isNaN(prevPart)) {
-                                    founderIdFromMessage = part;
-                                    console.log(`[WS${this.wsNumber}] 353 - Extracted founder from position: ${founderIdFromMessage}`);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (extractError) {
-                console.error(`[WS${this.wsNumber}] Error extracting founder from 353:`, extractError);
-            }
-            
-            // Update founderUserId if we found it and don't have it yet
-            if (founderIdFromMessage && !this.founderUserId) {
-                this.founderUserId = founderIdFromMessage;
-                console.log(`[WS${this.wsNumber}] 353 - Set founder ID: ${this.founderUserId}`);
-                this.addLog(this.wsNumber, `👑 Planet founder: ${this.founderUserId}`);
-            }
-            
-            // Log current founder ID for debugging
+            // Log current founder ID (from FOUNDER message - the only reliable source)
             console.log(`[WS${this.wsNumber}] 353 - Using founder ID for filtering: ${this.founderUserId || 'NONE'}`);
 
             // Determine if we're in Kick or Imprison mode
@@ -723,7 +672,7 @@ class GameLogic {
             const integers = membersarr.filter(item => !isNaN(item) && item !== "-" && item.length >= 6);
             
             console.log(`[WS${this.wsNumber}] 353 - Found ${integers.length} user IDs: [${integers.join(', ')}]`);
-            console.log(`[WS${this.wsNumber}] 353 - Self ID: ${this.useridg}, Founder ID: ${this.founderUserId}`);
+            console.log(`[WS${this.wsNumber}] 353 - Self ID: ${this.useridg}, Founder ID: ${this.founderUserId || 'NONE'}`);
             
             const usersToAct = [];
             
@@ -1183,10 +1132,14 @@ class GameLogic {
         console.log(`[WS${this.wsNumber}] JOIN handler - modena=${this.config.modena}, kickmode=${this.config.kickmode}, lowsecmode=${this.config.lowsecmode}`);
         console.log(`[WS${this.wsNumber}] JOIN - Founder known: ${this.founderMessageReceived}, Founder ID: ${this.founderUserId || 'NONE'}`);
         
-        // CRITICAL: If we don't know the founder yet AND we're on first join, buffer this message
-        // We'll process it after FOUNDER message arrives
-        // Only buffer if we haven't received FOUNDER message yet
-        if (!this.founderMessageReceived && !this.founderUserId) {
+        // OPTIMIZATION: If we already know the founder ID, skip buffering
+        // Founder ID persists across reconnects to the same planet
+        if (this.founderUserId) {
+            console.log(`[WS${this.wsNumber}] JOIN - Founder already known (${this.founderUserId}), processing immediately`);
+            // Process immediately without buffering
+        }
+        // FIRST TIME: Buffer if we don't know founder yet
+        else if (!this.founderMessageReceived) {
             // Parse to get the joining user ID
             const parts = text.split(" ");
             const joiningUserId = parts[3] || "";
@@ -1196,22 +1149,33 @@ class GameLogic {
                 console.log(`[WS${this.wsNumber}] JOIN - Buffering message until FOUNDER received (user: ${joiningUserId})`);
                 this.pendingJoinMessages.push({ ws, snippets, text });
                 
-                // Short timeout (500ms) - FOUNDER message comes immediately after 353
-                // If this is the founder joining, FOUNDER message will arrive right after
-                setTimeout(() => {
-                    if (!this.founderMessageReceived && this.pendingJoinMessages.length > 0) {
-                        console.log(`[WS${this.wsNumber}] JOIN - No FOUNDER message received, processing buffered JOINs`);
-                        this.founderMessageReceived = true; // Mark as received (founder not here or already processed)
-                        
-                        // Process all buffered JOIN messages
-                        while (this.pendingJoinMessages.length > 0) {
-                            const buffered = this.pendingJoinMessages.shift();
-                            if (buffered) {
-                                this.handleJoinMessage(buffered.ws, buffered.snippets, buffered.text);
+                // Only set timeout if not already set (shared with 353)
+                if (!this.founderWaitTimeout) {
+                    this.founderWaitTimeout = setTimeout(() => {
+                        if (!this.founderMessageReceived && (this.pending353Messages.length > 0 || this.pendingJoinMessages.length > 0)) {
+                            console.log(`[WS${this.wsNumber}] Timeout - No FOUNDER message received, processing buffered messages`);
+                            this.founderMessageReceived = true; // Mark as received (founder not here or already processed)
+                            
+                            // Process all buffered 353 messages
+                            while (this.pending353Messages.length > 0) {
+                                const buffered = this.pending353Messages.shift();
+                                if (buffered) {
+                                    this.handle353Message(buffered.ws, buffered.snippets, buffered.text);
+                                }
                             }
+                            
+                            // Process all buffered JOIN messages
+                            while (this.pendingJoinMessages.length > 0) {
+                                const buffered = this.pendingJoinMessages.shift();
+                                if (buffered) {
+                                    this.handleJoinMessage(buffered.ws, buffered.snippets, buffered.text);
+                                }
+                            }
+                            
+                            this.founderWaitTimeout = null;
                         }
-                    }
-                }, 500);
+                    }, 500);
+                }
                 
                 return; // Don't process now, wait for FOUNDER or timeout
             }
@@ -1791,10 +1755,24 @@ class GameLogic {
             const founderId = snippets[1];
             
             // Update founder ID (this is the authoritative source)
+            const previousFounderId = this.founderUserId;
             this.founderUserId = founderId;
             this.founderMessageReceived = true;
             console.log(`[WS${this.wsNumber}] FOUNDER detected: ${founderId}`);
             this.addLog(this.wsNumber, `👑 Planet founder: ${founderId}`);
+            
+            // Clear the shared timeout since we got FOUNDER message
+            if (this.founderWaitTimeout) {
+                clearTimeout(this.founderWaitTimeout);
+                this.founderWaitTimeout = null;
+                console.log(`[WS${this.wsNumber}] Cleared founder wait timeout`);
+            }
+            
+            // CRITICAL: If we had wrong founder ID before, log it
+            if (previousFounderId && previousFounderId !== founderId) {
+                console.log(`[WS${this.wsNumber}] ⚠️ Founder ID corrected: ${previousFounderId} → ${founderId}`);
+                this.addLog(this.wsNumber, `⚠️ Founder ID updated: ${founderId}`);
+            }
             
             // CRITICAL: Remove founder from all target/attack lists if already added
             const targetIndex = this.targetids.indexOf(founderId);
@@ -1811,19 +1789,38 @@ class GameLogic {
                 console.log(`[WS${this.wsNumber}] Removed founder from attack list`);
             }
             
-            // Cancel attack if founder is current target
+            // CRITICAL: Cancel ANY scheduled attack if target is founder
+            // This handles the case where attack was scheduled before FOUNDER message arrived
             if (this.useridattack === founderId || this.useridtarget === founderId) {
-                console.log(`[WS${this.wsNumber}] Cancelling attack on founder`);
-                this.addLog(this.wsNumber, `👑 Cancelled - target is planet owner`);
+                console.log(`[WS${this.wsNumber}] ⚠️ CANCELLING scheduled attack on founder!`);
+                this.addLog(this.wsNumber, `🛑 Cancelled attack - target is planet owner`);
                 
+                // Clear the timeout to prevent attack
                 if (this.timeout) {
                     clearTimeout(this.timeout);
                     this.timeout = null;
+                    console.log(`[WS${this.wsNumber}] Cleared attack timeout for founder`);
                 }
                 
+                // Clear all nested timeouts (for kick/imprison modes)
+                if (this.innerTimeouts && this.innerTimeouts.length > 0) {
+                    this.innerTimeouts.forEach(t => clearTimeout(t));
+                    this.innerTimeouts = [];
+                    console.log(`[WS${this.wsNumber}] Cleared ${this.innerTimeouts.length} nested timeouts`);
+                }
+                
+                // Reset attack state
                 this.userFound = false;
                 this.useridattack = null;
                 this.useridtarget = null;
+            }
+            
+            // Also check if founder is in any scheduled actions (for kick/imprison modes)
+            // Clear the main timeout if it exists (might be for founder)
+            if (this.timeout && (this.useridattack === founderId || this.useridtarget === founderId)) {
+                clearTimeout(this.timeout);
+                this.timeout = null;
+                console.log(`[WS${this.wsNumber}] Cleared main timeout (founder protection)`);
             }
             
             // Process any buffered 353 messages now that we know the founder
