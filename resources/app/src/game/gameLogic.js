@@ -64,6 +64,10 @@ class GameLogic {
         this.whoisPendingRequests = new Map(); // userid -> { retries, timestamp, timeout }
         this.whoisMaxRetries = 3;
         this.whoisTimeout = 5000; // 5 seconds timeout per request
+        
+        // Founder Protection - Buffer 353 until FOUNDER message received
+        this.pending353Messages = []; // Buffer 353 messages until founder known
+        this.founderMessageReceived = false;
     }
 
     // Helper methods
@@ -205,6 +209,11 @@ class GameLogic {
             });
             this.whoisPendingRequests.clear();
         }
+        
+        // Clear buffered 353 messages and reset founder flag
+        this.pending353Messages = [];
+        this.founderMessageReceived = false;
+        // Note: Keep this.founderUserId - it persists across reconnects to same planet
 
         this.isOffSleepActive = false;
         this.consecutiveErrors = 0;
@@ -342,28 +351,49 @@ class GameLogic {
         const planetName = snippets[3];
         
         console.log(`[WS${this.wsNumber}] 353 message received - Planet: ${planetName}`);
-        console.log(`[WS${this.wsNumber}] autorelease config: ${this.config.autorelease}`);
-        this.addLog(this.wsNumber, `📋 353 - Users on ${planetName || 'planet'}`);
+        console.log(`[WS${this.wsNumber}] Founder known: ${this.founderMessageReceived}, Founder ID: ${this.founderUserId || 'NONE'}`);
         
-        // Extract founder ID from 353 message (user with + prefix)
-        // Format: "353 = #channel :+username userid @supervisor userid ..."
-        // The + prefix indicates the planet founder/owner
-        if (!this.founderUserId) {
-            const parts = text.split(" ");
-            for (let i = 0; i < parts.length - 1; i++) {
-                // Look for username with + prefix
-                if (parts[i].startsWith("+")) {
-                    // Next part should be the user ID
-                    const nextPart = parts[i + 1];
-                    if (nextPart && !isNaN(nextPart) && nextPart.length >= 6) {
-                        this.founderUserId = nextPart;
-                        console.log(`[WS${this.wsNumber}] 353 - Extracted founder ID: ${this.founderUserId}`);
-                        this.addLog(this.wsNumber, `👑 Planet founder detected: ${this.founderUserId}`);
-                        break;
+        // Check if founder is present in this 353 message
+        // Look for pattern that indicates founder will send FOUNDER message
+        // If founder is on planet, we should wait for FOUNDER message
+        // If founder is NOT on planet, process immediately
+        
+        let founderPresentOnPlanet = false;
+        
+        // Parse the 353 message to see if there are any users
+        // If there are users, check if we've received FOUNDER message before
+        // On first join, if users present, founder might be there
+        const hasUsers = text.match(/\d{6,}/); // Check if there are any user IDs
+        
+        if (hasUsers && !this.founderMessageReceived && !this.founderUserId) {
+            // First time on this planet with users present
+            // Wait briefly for FOUNDER message (it comes right after 353)
+            console.log(`[WS${this.wsNumber}] 353 - First join with users, waiting for FOUNDER message`);
+            this.addLog(this.wsNumber, `⏳ Checking for planet owner...`);
+            this.pending353Messages.push({ ws, snippets, text });
+            
+            // Short timeout (500ms) - FOUNDER message comes immediately after 353
+            setTimeout(() => {
+                if (!this.founderMessageReceived && this.pending353Messages.length > 0) {
+                    console.log(`[WS${this.wsNumber}] 353 - No FOUNDER message received, founder not on planet`);
+                    this.addLog(this.wsNumber, `✅ Planet owner not present`);
+                    this.founderMessageReceived = true; // Mark as received (founder not here)
+                    
+                    // Process all buffered messages
+                    while (this.pending353Messages.length > 0) {
+                        const buffered = this.pending353Messages.shift();
+                        if (buffered) {
+                            this.handle353Message(buffered.ws, buffered.snippets, buffered.text);
+                        }
                     }
                 }
-            }
+            }, 500); // Reduced to 500ms since FOUNDER comes immediately
+            
+            return; // Don't process now, wait for FOUNDER or timeout
         }
+        
+        console.log(`[WS${this.wsNumber}] autorelease config: ${this.config.autorelease}`);
+        this.addLog(this.wsNumber, `📋 353 - Users on ${planetName || 'planet'}`);
         
         if (planetName) {
             this.currentPlanet = planetName;
@@ -444,6 +474,27 @@ class GameLogic {
             if (!this.config.kickall && !this.config.kickbybl && !this.config.dadplus) {
                 return;
             }
+            
+            // ===== CRITICAL: Extract founder ID from 353 message FIRST =====
+            let founderIdFromMessage = null;
+            
+            try {
+                const plusMatch = text.match(/\+([^\s]+)\s+(\d{6,})/);
+                if (plusMatch && plusMatch[2]) {
+                    founderIdFromMessage = plusMatch[2];
+                    console.log(`[WS${this.wsNumber}] 353 BAN - Extracted founder from + prefix: ${founderIdFromMessage}`);
+                }
+            } catch (extractError) {
+                console.error(`[WS${this.wsNumber}] Error extracting founder from 353:`, extractError);
+            }
+            
+            if (founderIdFromMessage && !this.founderUserId) {
+                this.founderUserId = founderIdFromMessage;
+                console.log(`[WS${this.wsNumber}] 353 BAN - Set founder ID: ${this.founderUserId}`);
+                this.addLog(this.wsNumber, `👑 Planet founder: ${this.founderUserId}`);
+            }
+            
+            console.log(`[WS${this.wsNumber}] 353 BAN - Using founder ID for filtering: ${this.founderUserId || 'NONE'}`);
 
             console.log(`[WS${this.wsNumber}] 353 BAN mode - Processing user list`);
             console.log(`[WS${this.wsNumber}] 353 BAN mode options - Everyone=${this.config.kickall}, ByBlacklist=${this.config.kickbybl}, Dad+=${this.config.dadplus}`);
@@ -455,6 +506,9 @@ class GameLogic {
             const membersarr = members.toLowerCase().split(" ");
             const integers = membersarr.filter(item => !isNaN(item) && item !== "-" && item.length >= 6);
             
+            console.log(`[WS${this.wsNumber}] 353 BAN - Found ${integers.length} user IDs`);
+            console.log(`[WS${this.wsNumber}] 353 BAN - Self ID: ${this.useridg}, Founder ID: ${this.founderUserId}`);
+            
             const usersToBan = [];
             
             // OPTION 1: Check "Everyone" mode - ban all users
@@ -462,6 +516,19 @@ class GameLogic {
                 console.log(`[WS${this.wsNumber}] 353 BAN mode - Everyone mode active`);
                 
                 integers.forEach((userid) => {
+                    // CRITICAL: Check founder FIRST
+                    if (userid === this.founderUserId) {
+                        console.log(`[WS${this.wsNumber}] 353 BAN mode - SKIPPING FOUNDER: ${userid}`);
+                        this.addLog(this.wsNumber, `👑 Skipping planet owner: ${userid}`);
+                        return;
+                    }
+                    
+                    // Skip self
+                    if (userid === this.useridg) {
+                        console.log(`[WS${this.wsNumber}] 353 BAN mode - Skipping self: ${userid}`);
+                        return;
+                    }
+                    
                     const idx = membersarr.indexOf(userid);
                     if (idx > 0) {
                         const username = membersarr[idx - 1];
@@ -469,14 +536,9 @@ class GameLogic {
                         // Skip if username is also numeric
                         if (!isNaN(username)) return;
                         
-                        // Skip self and founder
-                        if (userid === this.useridg) {
-                            console.log(`[WS${this.wsNumber}] 353 BAN mode - Skipping self: ${userid}`);
-                        } else if (userid === this.founderUserId) {
-                            console.log(`[WS${this.wsNumber}] 353 BAN mode - Skipping founder: ${userid}`);
-                        } else if (!usersToBan.find(u => u.userid === userid)) {
+                        if (!usersToBan.find(u => u.userid === userid)) {
                             usersToBan.push({ userid, username, reason: 'everyone' });
-                            console.log(`[WS${this.wsNumber}] 353 BAN mode - Found user to ban (everyone): ${username} (${userid})`);
+                            console.log(`[WS${this.wsNumber}] 353 BAN mode - Added user to ban (everyone): ${username} (${userid})`);
                         }
                     }
                 });
@@ -595,6 +657,54 @@ class GameLogic {
             if (!this.config.kickall && !this.config.kickbybl && !this.config.dadplus) {
                 return;
             }
+            
+            // ===== CRITICAL: Extract founder ID from 353 message FIRST =====
+            // This ensures we know who the founder is BEFORE processing any users
+            // Format: "353 = #channel :+founderName founderId @supervisor superId ..."
+            let founderIdFromMessage = null;
+            
+            try {
+                // Method 1: Look for + prefix (most reliable)
+                const plusMatch = text.match(/\+([^\s]+)\s+(\d{6,})/);
+                if (plusMatch && plusMatch[2]) {
+                    founderIdFromMessage = plusMatch[2];
+                    console.log(`[WS${this.wsNumber}] 353 - Extracted founder from + prefix: ${founderIdFromMessage}`);
+                }
+                
+                // Method 2: If no + prefix found, look in the raw text for pattern
+                if (!founderIdFromMessage) {
+                    // Split and look for first valid user ID after channel name
+                    const parts = text.split(/\s+/);
+                    const channelIndex = parts.findIndex(p => p.includes(channelName));
+                    if (channelIndex > -1) {
+                        // Look for first numeric ID after channel (usually founder)
+                        for (let i = channelIndex + 1; i < parts.length; i++) {
+                            const part = parts[i].replace(/[+@:]/g, ''); // Remove prefixes
+                            if (!isNaN(part) && part.length >= 6) {
+                                // Check if previous part looks like a username (not numeric)
+                                const prevPart = parts[i - 1]?.replace(/[+@:]/g, '');
+                                if (prevPart && isNaN(prevPart)) {
+                                    founderIdFromMessage = part;
+                                    console.log(`[WS${this.wsNumber}] 353 - Extracted founder from position: ${founderIdFromMessage}`);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (extractError) {
+                console.error(`[WS${this.wsNumber}] Error extracting founder from 353:`, extractError);
+            }
+            
+            // Update founderUserId if we found it and don't have it yet
+            if (founderIdFromMessage && !this.founderUserId) {
+                this.founderUserId = founderIdFromMessage;
+                console.log(`[WS${this.wsNumber}] 353 - Set founder ID: ${this.founderUserId}`);
+                this.addLog(this.wsNumber, `👑 Planet founder: ${this.founderUserId}`);
+            }
+            
+            // Log current founder ID for debugging
+            console.log(`[WS${this.wsNumber}] 353 - Using founder ID for filtering: ${this.founderUserId || 'NONE'}`);
 
             // Determine if we're in Kick or Imprison mode
             const isKickMode = this.config.kickmode === true;
@@ -610,6 +720,9 @@ class GameLogic {
             const membersarr = members.toLowerCase().split(" ");
             const integers = membersarr.filter(item => !isNaN(item) && item !== "-" && item.length >= 6);
             
+            console.log(`[WS${this.wsNumber}] 353 - Found ${integers.length} user IDs: [${integers.join(', ')}]`);
+            console.log(`[WS${this.wsNumber}] 353 - Self ID: ${this.useridg}, Founder ID: ${this.founderUserId}`);
+            
             const usersToAct = [];
             
             // OPTION 1: Check "Everyone" mode - kick/imprison all users
@@ -617,6 +730,19 @@ class GameLogic {
                 console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - Everyone mode active`);
                 
                 integers.forEach((userid) => {
+                    // CRITICAL: Check founder FIRST before any processing
+                    if (userid === this.founderUserId) {
+                        console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - SKIPPING FOUNDER: ${userid}`);
+                        this.addLog(this.wsNumber, `👑 Skipping planet owner: ${userid}`);
+                        return; // Skip this user completely
+                    }
+                    
+                    // Skip self
+                    if (userid === this.useridg) {
+                        console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - Skipping self: ${userid}`);
+                        return;
+                    }
+                    
                     const idx = membersarr.indexOf(userid);
                     if (idx > 0) {
                         const username = membersarr[idx - 1];
@@ -624,15 +750,9 @@ class GameLogic {
                         // Skip if username is also numeric (means it's not a username)
                         if (!isNaN(username)) return;
                         
-                        // Skip ONLY self and founder (NOT supervisors)
-                        if (userid === this.useridg) {
-                            console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - Skipping self: ${userid}`);
-                        } else if (userid === this.founderUserId) {
-                            console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - Skipping founder: ${userid}`);
-                            this.addLog(this.wsNumber, `👑 Skipping planet owner`);
-                        } else if (!usersToAct.find(u => u.userid === userid)) {
+                        if (!usersToAct.find(u => u.userid === userid)) {
                             usersToAct.push({ userid, username, reason: 'everyone' });
-                            console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - Found user (everyone): ${username} (${userid})`);
+                            console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - Added user (everyone): ${username} (${userid})`);
                         }
                     }
                 });
@@ -921,8 +1041,13 @@ class GameLogic {
                     arr.shift();
                     if (arr[0]) {
                         const uid = arr[0].split(" ")[0];
+                        
+                        // Skip self
+                        if (uid === this.useridg) {
+                            console.log(`[WS${this.wsNumber}] Skipping self: ${uid}`);
+                        }
                         // Skip founder
-                        if (uid === this.founderUserId) {
+                        else if (uid === this.founderUserId) {
                             this.addLog(this.wsNumber, `👑 Skipping planet owner: ${element}`);
                             console.log(`[WS${this.wsNumber}] Founder ${uid} skipped - not adding to attack list`);
                         } else if (uid && !this.targetids.includes(uid)) {
@@ -949,6 +1074,12 @@ class GameLogic {
                         const parts = value.split(" ");
                         const uid = parts[1];
                         const name = parts[0];
+                        
+                        // Skip self
+                        if (uid === this.useridg) {
+                            console.log(`[WS${this.wsNumber}] Skipping self in gang: ${name}`);
+                            continue;
+                        }
                         // Skip founder
                         if (uid === this.founderUserId) {
                             this.addLog(this.wsNumber, `👑 Skipping planet owner in gang: ${name}`);
@@ -1414,6 +1545,12 @@ class GameLogic {
                 const matchedId = parts[3];
                 const matchedUser = parts[2] || "unknown";
 
+                // Skip self
+                if (matchedId === this.useridg) {
+                    console.log(`[WS${this.wsNumber}] Skipping self in low sec JOIN`);
+                    return;
+                }
+
                 if (matchedId === this.founderUserId) {
                     this.addLog(this.wsNumber, `👑 Skipping planet owner in low sec mode`);
                     return;
@@ -1615,9 +1752,55 @@ class GameLogic {
         // Extract the founder's user ID
         if (snippets.length >= 2) {
             const founderId = snippets[1];
+            
+            // Update founder ID (this is the authoritative source)
             this.founderUserId = founderId;
+            this.founderMessageReceived = true;
             console.log(`[WS${this.wsNumber}] FOUNDER detected: ${founderId}`);
             this.addLog(this.wsNumber, `👑 Planet founder: ${founderId}`);
+            
+            // CRITICAL: Remove founder from all target/attack lists if already added
+            const targetIndex = this.targetids.indexOf(founderId);
+            if (targetIndex > -1) {
+                this.targetids.splice(targetIndex, 1);
+                this.targetnames.splice(targetIndex, 1);
+                console.log(`[WS${this.wsNumber}] Removed founder from target list`);
+            }
+            
+            const attackIndex = this.attackids.indexOf(founderId);
+            if (attackIndex > -1) {
+                this.attackids.splice(attackIndex, 1);
+                this.attacknames.splice(attackIndex, 1);
+                console.log(`[WS${this.wsNumber}] Removed founder from attack list`);
+            }
+            
+            // Cancel attack if founder is current target
+            if (this.useridattack === founderId || this.useridtarget === founderId) {
+                console.log(`[WS${this.wsNumber}] Cancelling attack on founder`);
+                this.addLog(this.wsNumber, `👑 Cancelled - target is planet owner`);
+                
+                if (this.timeout) {
+                    clearTimeout(this.timeout);
+                    this.timeout = null;
+                }
+                
+                this.userFound = false;
+                this.useridattack = null;
+                this.useridtarget = null;
+            }
+            
+            // Process any buffered 353 messages now that we know the founder
+            if (this.pending353Messages.length > 0) {
+                console.log(`[WS${this.wsNumber}] Processing ${this.pending353Messages.length} buffered 353 message(s)`);
+                this.addLog(this.wsNumber, `🔄 Processing buffered messages with founder info`);
+                
+                this.pending353Messages.forEach(buffered => {
+                    console.log(`[WS${this.wsNumber}] Reprocessing buffered 353 message`);
+                    this.handle353Message(buffered.ws, buffered.snippets, buffered.text);
+                });
+                
+                this.pending353Messages = [];
+            }
         }
     }
 
