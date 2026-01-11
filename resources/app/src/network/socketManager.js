@@ -167,6 +167,7 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
         if (snippets[0] === "860") gameLogic.handle860Message(ws, snippets, text);
         if (snippets[0] === "471") gameLogic.handle471Message(ws, snippets, text);
         if (snippets[0] === "900" || snippets[0].trim() === "900") gameLogic.handle900Message(ws, snippets, text);
+        if (snippets[0] === "FOUNDER") gameLogic.handleFounderMessage(ws, snippets, text);
         
         // Handle PRISON message (when you get imprisoned)
         if (snippets[1] === "PRISON" && snippets[2] === "0") {
