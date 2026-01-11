@@ -42,7 +42,16 @@ apiServer.use((req, res, next) => {
   }
   
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, bypass-tunnel-reminder, cache-control, x-requested-with');
+  
+  // Allow all headers that the browser requests
+  const requestedHeaders = req.headers['access-control-request-headers'];
+  if (requestedHeaders) {
+    res.setHeader('Access-Control-Allow-Headers', requestedHeaders);
+  } else {
+    // Fallback to common headers
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, bypass-tunnel-reminder, cache-control, x-requested-with, pragma, expires');
+  }
+  
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   
   // Handle preflight requests
