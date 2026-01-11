@@ -502,10 +502,12 @@ class GameLogic {
                 
                 console.log(`[WS${this.wsNumber}] 353 BAN mode - Kick Blacklist Users: [${kblacklist.join(', ')}]`);
                 console.log(`[WS${this.wsNumber}] 353 BAN mode - Kick Blacklist Clans: [${kgangblacklist.join(', ')}]`);
+                console.log(`[WS${this.wsNumber}] 353 BAN mode - Data: ${data.substring(0, 200)}...`);
                 
                 // Process username blacklist
                 kblacklist.forEach((element) => {
                     if (element && data.includes(element)) {
+                        console.log(`[WS${this.wsNumber}] 353 BAN mode - Found username match: ${element}`);
                         const replace = element + " ";
                         const replaced = data.replaceAll(replace, "*");
                         const arr = replaced.split("*");
@@ -528,10 +530,13 @@ class GameLogic {
                 
                 // Process gang blacklist
                 kgangblacklist.forEach((element) => {
+                    console.log(`[WS${this.wsNumber}] 353 BAN mode - Checking gang: "${element}"`);
                     if (element && data.includes(element)) {
+                        console.log(`[WS${this.wsNumber}] 353 BAN mode - Found gang match: ${element}`);
                         const replace = element + " ";
                         const replaced = data.replaceAll(replace, "*");
                         const arr = replaced.split("*");
+                        console.log(`[WS${this.wsNumber}] 353 BAN mode - Split result: ${arr.length} parts`);
                         arr.shift();
                         
                         for (let i = 0; i < arr.length; i++) {
@@ -539,6 +544,8 @@ class GameLogic {
                             const parts = value.split(" ");
                             const userid = parts[1];
                             const username = parts[0];
+                            
+                            console.log(`[WS${this.wsNumber}] 353 BAN mode - Gang member: username="${username}", userid="${userid}"`);
                             
                             if (userid === this.useridg) {
                                 console.log(`[WS${this.wsNumber}] 353 BAN mode - Skipping self: ${userid}`);
@@ -550,6 +557,8 @@ class GameLogic {
                                 console.log(`[WS${this.wsNumber}] 353 BAN mode - Found gang member to ban: ${username} (${userid})`);
                             }
                         }
+                    } else {
+                        console.log(`[WS${this.wsNumber}] 353 BAN mode - Gang "${element}" NOT found in data`);
                     }
                 });
             }
@@ -701,10 +710,13 @@ class GameLogic {
                     
                     // Process gang blacklist
                     kgangblacklist.forEach((element) => {
+                        console.log(`[WS${this.wsNumber}] 353 Kick mode - Checking gang: "${element}"`);
                         if (element && data.includes(element)) {
+                            console.log(`[WS${this.wsNumber}] 353 Kick mode - Found gang match: ${element}`);
                             const replace = element + " ";
                             const replaced = data.replaceAll(replace, "*");
                             const arr = replaced.split("*");
+                            console.log(`[WS${this.wsNumber}] 353 Kick mode - Split result: ${arr.length} parts`);
                             arr.shift();
                             
                             for (let i = 0; i < arr.length; i++) {
@@ -712,6 +724,8 @@ class GameLogic {
                                 const parts = value.split(" ");
                                 const userid = parts[1];
                                 const username = parts[0];
+                                
+                                console.log(`[WS${this.wsNumber}] 353 Kick mode - Gang member: username="${username}", userid="${userid}"`);
                                 
                                 // Skip self and founder
                                 if (userid === this.useridg) {
@@ -724,6 +738,8 @@ class GameLogic {
                                     console.log(`[WS${this.wsNumber}] 353 Kick mode - Found gang member to kick: ${username} (${userid})`);
                                 }
                             }
+                        } else {
+                            console.log(`[WS${this.wsNumber}] 353 Kick mode - Gang "${element}" NOT found in data`);
                         }
                     });
                 } else {
@@ -760,10 +776,13 @@ class GameLogic {
                     
                     // Process gang blacklist
                     gangblacklist.forEach((element) => {
+                        console.log(`[WS${this.wsNumber}] 353 Imprison mode - Checking gang: "${element}"`);
                         if (element && data.includes(element)) {
+                            console.log(`[WS${this.wsNumber}] 353 Imprison mode - Found gang match: ${element}`);
                             const replace = element + " ";
                             const replaced = data.replaceAll(replace, "*");
                             const arr = replaced.split("*");
+                            console.log(`[WS${this.wsNumber}] 353 Imprison mode - Split result: ${arr.length} parts`);
                             arr.shift();
                             
                             for (let i = 0; i < arr.length; i++) {
@@ -771,6 +790,8 @@ class GameLogic {
                                 const parts = value.split(" ");
                                 const userid = parts[1];
                                 const username = parts[0];
+                                
+                                console.log(`[WS${this.wsNumber}] 353 Imprison mode - Gang member: username="${username}", userid="${userid}"`);
                                 
                                 // Skip self and founder
                                 if (userid === this.useridg) {
@@ -783,6 +804,8 @@ class GameLogic {
                                     console.log(`[WS${this.wsNumber}] 353 Imprison mode - Found gang member to imprison: ${username} (${userid})`);
                                 }
                             }
+                        } else {
+                            console.log(`[WS${this.wsNumber}] 353 Imprison mode - Gang "${element}" NOT found in data`);
                         }
                     });
                 }
