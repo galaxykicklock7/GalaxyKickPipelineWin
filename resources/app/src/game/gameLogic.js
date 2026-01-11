@@ -136,19 +136,48 @@ class GameLogic {
         if (!this.config.timershift) return;
         let value = parseInt(this.config[key] || 1940);
         const baseVal = parseInt(this.config.incrementvalue || 10);
-        let step = this.getAdaptiveStepSize(baseVal);
-        if (this.isOscillating()) step = Math.max(1, Math.floor(step / 2));
+        const decrementVal = parseInt(this.config.decrementvalue || 10);
+        
+        // Get min/max bounds
+        const isAttack = key.startsWith('attack');
+        const minBound = parseInt(isAttack ? this.config.minatk : this.config.mindef || 1000);
+        const maxBound = parseInt(isAttack ? this.config.maxatk : this.config.maxdef || 3000);
+        
+        // Calculate step size
+        let step;
+        if (increment) {
+            step = this.getAdaptiveStepSize(baseVal);
+        } else {
+            step = decrementVal; // Use smaller steps for decrement (more conservative)
+        }
+        
+        // Reduce step size if oscillating
+        if (this.isOscillating()) {
+            step = Math.max(1, Math.floor(step / 2));
+            this.addLog(this.wsNumber, `⚠️ Oscillation detected - reducing step to ${step}ms`);
+        }
 
         if (increment) {
             value += step;
-            this.addLog(this.wsNumber, `⏫ Timing ${key} +${step}ms -> ${value}`);
+            if (value <= maxBound) {
+                this.config[key] = value;
+                this.updateConfig(key, value);
+                this.trackAdjustment(step);
+                this.addLog(this.wsNumber, `⏫ Timing ${key} increased to ${value}ms (+${step}ms)`);
+            } else {
+                this.addLog(this.wsNumber, `⚠️ Timing ${key} at maximum (${maxBound}ms)`);
+            }
         } else {
             value -= step;
-            this.addLog(this.wsNumber, `⏬ Timing ${key} -${step}ms -> ${value}`);
+            if (value >= minBound) {
+                this.config[key] = value;
+                this.updateConfig(key, value);
+                this.trackAdjustment(-step);
+                this.addLog(this.wsNumber, `⏬ Timing ${key} decreased to ${value}ms (-${step}ms)`);
+            } else {
+                this.addLog(this.wsNumber, `⚠️ Timing ${key} at minimum (${minBound}ms)`);
+            }
         }
-        this.config[key] = value;
-        this.updateConfig(key, value);
-        this.trackAdjustment(increment ? step : -step);
     }
 
     // ==================== SMART MODE LOGIC ====================
@@ -1606,13 +1635,62 @@ class GameLogic {
     }
 
     handle850Message(ws, snippets, text) {
-        if (snippets[6] === "3s") {
-            this.threesec = true;
-            this.addLog(this.wsNumber, `❌ 3s Error`);
-            this.incrementAttack();
-        } else if (snippets[3] === "allows") {
-            this.addLog(this.wsNumber, `✅ Success`);
-            this.decrementAttack();
+        try {
+            if (snippets[1] === ":<div") {
+                return;
+            }
+
+            // Check for 3-second error (TOO SLOW!)
+            if (snippets.length >= 7 && snippets[6] === "3s") {
+                this.threesec = true;
+                this.consecutiveErrors++;  // Track for adaptive step size
+                this.consecutiveSuccesses = 0;  // Reset success counter
+                this.addLog(this.wsNumber, `❌ 3-second error - Too slow!`);
+                
+                // Timer Shift: Only adjust relevant timing based on status
+                if (this.config.timershift) {
+                    if (this.status === "attack") {
+                        this.incrementAttack();  // Only adjust attack timing
+                        this.addLog(this.wsNumber, `📊 Adjusting attack timing only`);
+                    } else if (this.status === "defense") {
+                        this.incrementDefence();  // Only adjust defense timing
+                        this.addLog(this.wsNumber, `📊 Adjusting defense timing only`);
+                    } else {
+                        // Unknown status - adjust attack as default
+                        this.incrementAttack();
+                        this.addLog(this.wsNumber, `📊 Status unknown - adjusting attack timing`);
+                    }
+                }
+            }
+            
+            // Check for success event (we actually imprisoned someone!)
+            if (snippets.length >= 4 && snippets[3] === "allows") {
+                this.consecutiveErrors = 0;  // Reset error counter
+                this.consecutiveSuccesses++;  // Track successes
+                this.addLog(this.wsNumber, `✅ Success - Imprisoned target!`);
+                
+                // Timer Shift: Only adjust relevant timing based on status
+                if (this.config.timershift) {
+                    if (this.status === "attack") {
+                        this.decrementAttack();  // Only adjust attack timing
+                        this.addLog(this.wsNumber, `📊 Optimizing attack timing`);
+                    } else if (this.status === "defense") {
+                        this.decrementDefence();  // Only adjust defense timing
+                        this.addLog(this.wsNumber, `📊 Optimizing defense timing`);
+                    } else {
+                        // Unknown status - adjust attack as default
+                        this.decrementAttack();
+                        this.addLog(this.wsNumber, `📊 Status unknown - optimizing attack timing`);
+                    }
+                }
+            }
+
+            const statusText = snippets.slice(1).join(" ").substring(0, 80);
+            if (statusText) {
+                this.addLog(this.wsNumber, `ℹ️ ${statusText}`);
+            }
+        } catch (error) {
+            console.error(`[WS${this.wsNumber}] Error in handle850Message:`, error);
         }
     }
     handle452Message(ws, snippets, text) {

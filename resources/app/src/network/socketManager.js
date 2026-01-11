@@ -111,8 +111,9 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
         const text = data.toString();
         const snippets = text.split(" ");
         
-        // Debug: Log all messages
-        console.log(`[WS${wsNumber}] Received: ${snippets[0]} ${snippets.slice(1, 4).join(' ')}`);
+        // Debug: Log ALL raw messages
+        console.log(`[WS${wsNumber}] RAW MESSAGE:`, text.substring(0, 200));
+        console.log(`[WS${wsNumber}] Parsed command: ${snippets[0]}`);
 
         if (snippets[0] === "HAAAPSI") {
             savedHaaapsi = snippets[1];
