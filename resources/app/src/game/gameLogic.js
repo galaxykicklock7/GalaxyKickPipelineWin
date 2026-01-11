@@ -67,6 +67,7 @@ class GameLogic {
         
         // Founder Protection - Buffer 353 until FOUNDER message received
         this.pending353Messages = []; // Buffer 353 messages until founder known
+        this.pendingJoinMessages = []; // Buffer JOIN messages until founder known
         this.founderMessageReceived = false;
     }
 
@@ -212,6 +213,7 @@ class GameLogic {
         
         // Clear buffered 353 messages and reset founder flag
         this.pending353Messages = [];
+        this.pendingJoinMessages = [];
         this.founderMessageReceived = false;
         // Note: Keep this.founderUserId - it persists across reconnects to same planet
 
@@ -1179,6 +1181,41 @@ class GameLogic {
 
     handleJoinMessage(ws, snippets, text) {
         console.log(`[WS${this.wsNumber}] JOIN handler - modena=${this.config.modena}, kickmode=${this.config.kickmode}, lowsecmode=${this.config.lowsecmode}`);
+        console.log(`[WS${this.wsNumber}] JOIN - Founder known: ${this.founderMessageReceived}, Founder ID: ${this.founderUserId || 'NONE'}`);
+        
+        // CRITICAL: If we don't know the founder yet AND we're on first join, buffer this message
+        // We'll process it after FOUNDER message arrives
+        // Only buffer if we haven't received FOUNDER message yet
+        if (!this.founderMessageReceived && !this.founderUserId) {
+            // Parse to get the joining user ID
+            const parts = text.split(" ");
+            const joiningUserId = parts[3] || "";
+            
+            // Only buffer if there's a valid user ID
+            if (joiningUserId && joiningUserId.length >= 6 && !isNaN(joiningUserId)) {
+                console.log(`[WS${this.wsNumber}] JOIN - Buffering message until FOUNDER received (user: ${joiningUserId})`);
+                this.pendingJoinMessages.push({ ws, snippets, text });
+                
+                // Short timeout (500ms) - FOUNDER message comes immediately after 353
+                // If this is the founder joining, FOUNDER message will arrive right after
+                setTimeout(() => {
+                    if (!this.founderMessageReceived && this.pendingJoinMessages.length > 0) {
+                        console.log(`[WS${this.wsNumber}] JOIN - No FOUNDER message received, processing buffered JOINs`);
+                        this.founderMessageReceived = true; // Mark as received (founder not here or already processed)
+                        
+                        // Process all buffered JOIN messages
+                        while (this.pendingJoinMessages.length > 0) {
+                            const buffered = this.pendingJoinMessages.shift();
+                            if (buffered) {
+                                this.handleJoinMessage(buffered.ws, buffered.snippets, buffered.text);
+                            }
+                        }
+                    }
+                }, 500);
+                
+                return; // Don't process now, wait for FOUNDER or timeout
+            }
+        }
         
         // Check N/A mode first - applies to ALL connections
         if (this.config.modena === true) {
@@ -1792,7 +1829,7 @@ class GameLogic {
             // Process any buffered 353 messages now that we know the founder
             if (this.pending353Messages.length > 0) {
                 console.log(`[WS${this.wsNumber}] Processing ${this.pending353Messages.length} buffered 353 message(s)`);
-                this.addLog(this.wsNumber, `🔄 Processing buffered messages with founder info`);
+                this.addLog(this.wsNumber, `🔄 Processing buffered 353 messages with founder info`);
                 
                 this.pending353Messages.forEach(buffered => {
                     console.log(`[WS${this.wsNumber}] Reprocessing buffered 353 message`);
@@ -1800,6 +1837,19 @@ class GameLogic {
                 });
                 
                 this.pending353Messages = [];
+            }
+            
+            // Process any buffered JOIN messages now that we know the founder
+            if (this.pendingJoinMessages.length > 0) {
+                console.log(`[WS${this.wsNumber}] Processing ${this.pendingJoinMessages.length} buffered JOIN message(s)`);
+                this.addLog(this.wsNumber, `🔄 Processing buffered JOIN messages with founder info`);
+                
+                this.pendingJoinMessages.forEach(buffered => {
+                    console.log(`[WS${this.wsNumber}] Reprocessing buffered JOIN message`);
+                    this.handleJoinMessage(buffered.ws, buffered.snippets, buffered.text);
+                });
+                
+                this.pendingJoinMessages = [];
             }
         }
     }
