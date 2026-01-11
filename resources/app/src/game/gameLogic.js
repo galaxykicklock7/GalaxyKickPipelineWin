@@ -18,11 +18,11 @@ class GameLogic {
         this.finalusername = null;
         this.botGangName = null; // Track bot's own gang/clan name
 
-        // Target tracking
-        this.targetids = [];
-        this.targetnames = [];
-        this.attackids = [];
-        this.attacknames = [];
+        // Target tracking - Using Sets for faster lookups
+        this.targetids = new Set();
+        this.targetnames = new Map(); // userid -> username
+        this.attackids = new Set();
+        this.attacknames = new Map(); // userid -> username
 
         // Current target/attack
         this.useridtarget = null;
@@ -68,7 +68,37 @@ class GameLogic {
         this.whoisTimeout = 5000; // 5 seconds timeout per request
     }
 
-    // Helper methods
+    // ==================== HELPER METHODS ====================
+    
+    /**
+     * Parse 353 message to extract user IDs - Optimized version
+     * @param {string} text - Raw 353 message
+     * @returns {Array} - Array of user IDs
+     */
+    parse353UserIds(text) {
+        // Single regex replace instead of multiple split/join operations
+        const members = text.replace(/[+@:]/g, '').toLowerCase();
+        const membersarr = members.split(" ");
+        return membersarr.filter(item => !isNaN(item) && item !== "-" && item.length >= 6);
+    }
+    
+    /**
+     * Add user to target/attack tracking - Using Sets for O(1) lookups
+     * @param {string} userid - User ID
+     * @param {string} username - Username
+     */
+    addToTargetTracking(userid, username) {
+        if (!this.targetids.has(userid)) {
+            this.targetids.add(userid);
+            this.targetnames.set(userid, username);
+            this.attackids.add(userid);
+            this.attacknames.set(userid, username);
+            this.userAppearanceTime[userid] = Date.now();
+            return true;
+        }
+        return false;
+    }
+    
     parseHaaapsi(e) { return parseHaaapsi(e); }
     countOccurrences(arr, val) { return countOccurrences(arr, val); }
     
@@ -184,10 +214,10 @@ class GameLogic {
         this.userFound = false;
         this.status = "";
         this.threesec = false;
-        this.targetids = [];
-        this.targetnames = [];
-        this.attackids = [];
-        this.attacknames = [];
+        this.targetids.clear();
+        this.targetnames.clear();
+        this.attackids.clear();
+        this.attacknames.clear();
         this.useridattack = "";
         this.useridtarget = null;
         
@@ -320,13 +350,13 @@ class GameLogic {
     }
 
     getAvailableTargets() {
-        return this.attackids.filter(id => !this.isOnCooldown(id));
+        return Array.from(this.attackids).filter(id => !this.isOnCooldown(id));
     }
 
     selectSmartTarget() {
-        if (!this.config.smart || this.attackids.length === 0) return null;
+        if (!this.config.smart || this.attackids.size === 0) return null;
         let candidates = this.getAvailableTargets();
-        if (candidates.length === 0) candidates = this.attackids;
+        if (candidates.length === 0) candidates = Array.from(this.attackids);
 
         const unattacked = candidates.filter(id => !this.attackedThisSession.has(id));
         if (unattacked.length > 0) candidates = unattacked;
@@ -339,8 +369,7 @@ class GameLogic {
         } else {
             selectedId = candidates[Math.floor(Math.random() * candidates.length)];
         }
-        const idx = this.attackids.indexOf(selectedId);
-        return { id: selectedId, name: this.attacknames[idx] };
+        return { id: selectedId, name: this.attacknames.get(selectedId) };
     }
 
     // ==================== 353 MESSAGE HANDLERS ====================
@@ -518,12 +547,8 @@ class GameLogic {
             console.log(`[WS${this.wsNumber}] 353 BAN mode - Processing user list`);
             console.log(`[WS${this.wsNumber}] 353 BAN mode options - Everyone=${this.config.kickall}, ByBlacklist=${this.config.kickbybl}, Dad+=${this.config.dadplus}`);
             
-            // Parse all user IDs from 353 message
-            let members = text.split("+").join("");
-            members = members.split("@").join("");
-            members = members.split(":").join("");
-            const membersarr = members.toLowerCase().split(" ");
-            const integers = membersarr.filter(item => !isNaN(item) && item !== "-" && item.length >= 6);
+            // Parse all user IDs from 353 message - Optimized
+            const integers = this.parse353UserIds(text);
             
             console.log(`[WS${this.wsNumber}] 353 BAN - Found ${integers.length} user IDs`);
             console.log(`[WS${this.wsNumber}] 353 BAN - Self ID: ${this.useridg}, Founder ID: ${this.founderUserId || 'NONE'}`);
@@ -704,12 +729,8 @@ class GameLogic {
             console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - Processing user list`);
             console.log(`[WS${this.wsNumber}] 353 ${actionType} mode options - Everyone=${this.config.kickall}, ByBlacklist=${this.config.kickbybl}, Dad+=${this.config.dadplus}`);
             
-            // Parse all user IDs from 353 message
-            let members = text.split("+").join("");
-            members = members.split("@").join("");
-            members = members.split(":").join("");
-            const membersarr = members.toLowerCase().split(" ");
-            const integers = membersarr.filter(item => !isNaN(item) && item !== "-" && item.length >= 6);
+            // Parse all user IDs from 353 message - Optimized
+            const integers = this.parse353UserIds(text);
             
             console.log(`[WS${this.wsNumber}] 353 - Found ${integers.length} user IDs: [${integers.join(', ')}]`);
             console.log(`[WS${this.wsNumber}] 353 - Self ID: ${this.useridg}, Founder ID: ${this.founderUserId || 'NONE'}`);
@@ -996,7 +1017,8 @@ class GameLogic {
     handle353LowSec(ws, snippets, text) {
         if (snippets[3] && snippets[3].slice(0, 6) === "Prison") return;
 
-        let members = text.split("+").join("").split("@").join("").split(":").join("");
+        // Optimized string operations
+        const members = text.replace(/[+@:]/g, '');
         const membersarr = members.toLowerCase().split(" ");
         membersarr.push("randomname");
 
@@ -1071,12 +1093,7 @@ class GameLogic {
                         else if (uid === this.founderUserId) {
                             this.addLog(this.wsNumber, `👑 Skipping planet owner: ${element}`);
                             console.log(`[WS${this.wsNumber}] Founder ${uid} skipped - not adding to attack list`);
-                        } else if (uid && !this.targetids.includes(uid)) {
-                            this.targetids.push(uid);
-                            this.targetnames.push(element);
-                            this.attackids.push(uid);
-                            this.attacknames.push(element);
-                            this.userAppearanceTime[uid] = Date.now(); // Track appearance time
+                        } else if (uid && this.addToTargetTracking(uid, element)) {
                             this.addLog(this.wsNumber, `Found blacklisted: ${element} (${uid})`);
                         }
                     }
@@ -1106,12 +1123,7 @@ class GameLogic {
                             this.addLog(this.wsNumber, `👑 Skipping planet owner in gang: ${name}`);
                             continue;
                         }
-                        if (name && uid && !this.targetids.includes(uid)) {
-                            this.targetids.push(uid);
-                            this.targetnames.push(name);
-                            this.attackids.push(uid);
-                            this.attacknames.push(name);
-                            this.userAppearanceTime[uid] = Date.now(); // Track appearance time
+                        if (name && uid && this.addToTargetTracking(uid, name)) {
                             this.addLog(this.wsNumber, `Found gang member: ${name} (${uid})`);
                         }
                     }
@@ -1120,11 +1132,7 @@ class GameLogic {
 
             // Dad+ mode - Request user info for all users to check for aura
             if (this.config.dadplus) {
-                let members = text.split("+").join("");
-                members = members.split("@").join("");
-                members = members.split(":").join("");
-                const membersarr = members.toLowerCase().split(" ");
-                const integers = membersarr.filter(item => !isNaN(item) && item !== "-" && item.length >= 6);
+                const integers = this.parse353UserIds(text);
                 
                 console.log(`[WS${this.wsNumber}] Dad+ mode - Requesting info for ${integers.length} users`);
                 this.addLog(this.wsNumber, `🔍 Dad+ checking ${integers.length} users for aura`);
@@ -1139,7 +1147,7 @@ class GameLogic {
             }
 
             // Attack first target if available
-            if (!this.userFound && this.targetids.length > 0) {
+            if (!this.userFound && this.targetids.size > 0) {
                 let target;
                 
                 // Use smart mode if enabled
@@ -1147,8 +1155,10 @@ class GameLogic {
                     target = this.selectSmartTarget();
                 } else {
                     // Random selection (original behavior)
-                    const rand = Math.floor(Math.random() * this.targetids.length);
-                    target = { id: this.targetids[rand], name: this.targetnames[rand] };
+                    const targetArray = Array.from(this.targetids);
+                    const rand = Math.floor(Math.random() * targetArray.length);
+                    const targetId = targetArray[rand];
+                    target = { id: targetId, name: this.targetnames.get(targetId) };
                 }
                 
                 if (!target) return;
@@ -1430,11 +1440,7 @@ class GameLogic {
 
         if (match && !this.userFound) {
             // Add to attack pool
-            if (!this.attackids.includes(userid)) {
-                this.attackids.push(userid);
-                this.attacknames.push(name);
-                this.targetids.push(userid);
-                this.targetnames.push(name);
+            if (this.addToTargetTracking(userid, name)) {
                 this.userAppearanceTime[userid] = Date.now(); // Track appearance time
             }
             
@@ -1572,12 +1578,7 @@ class GameLogic {
             const bl = (this.config.blacklist || "").toLowerCase();
             const gbl = (this.config.gangblacklist || "").toLowerCase();
             if (bl.includes(username.toLowerCase()) || gbl.includes(username.toLowerCase())) {
-                if (!this.targetids.includes(userid)) {
-                    this.targetids.push(userid);
-                    this.targetnames.push(username);
-                    this.attackids.push(userid);
-                    this.attacknames.push(username);
-                }
+                this.addToTargetTracking(userid, username);
             }
         }
     }
@@ -1692,12 +1693,14 @@ class GameLogic {
 
     // Reused normal startAttack for normal finding
     startAttack(ws) {
-        if (this.targetids.length === 0) return;
+        if (this.targetids.size === 0) return;
         let target;
         if (this.config.smart) target = this.selectSmartTarget();
         else {
-            const rand = Math.floor(Math.random() * this.targetids.length);
-            target = { id: this.targetids[rand], name: this.targetnames[rand] };
+            const targetArray = Array.from(this.targetids);
+            const rand = Math.floor(Math.random() * targetArray.length);
+            const targetId = targetArray[rand];
+            target = { id: targetId, name: this.targetnames.get(targetId) };
         }
         if (!target) return;
         this.startAttackSequence(ws, target.id, target.name, "attack", "StartAttack");
@@ -1836,17 +1839,15 @@ class GameLogic {
             }
             
             // CRITICAL: Remove founder from all target/attack lists if already added
-            const targetIndex = this.targetids.indexOf(founderId);
-            if (targetIndex > -1) {
-                this.targetids.splice(targetIndex, 1);
-                this.targetnames.splice(targetIndex, 1);
+            if (this.targetids.has(founderId)) {
+                this.targetids.delete(founderId);
+                this.targetnames.delete(founderId);
                 console.log(`[WS${this.wsNumber}] Removed founder from target list`);
             }
             
-            const attackIndex = this.attackids.indexOf(founderId);
-            if (attackIndex > -1) {
-                this.attackids.splice(attackIndex, 1);
-                this.attacknames.splice(attackIndex, 1);
+            if (this.attackids.has(founderId)) {
+                this.attackids.delete(founderId);
+                this.attacknames.delete(founderId);
                 console.log(`[WS${this.wsNumber}] Removed founder from attack list`);
             }
             
@@ -1884,6 +1885,7 @@ class GameLogic {
         const planet = snippets[1];
         
         this.currentPlanet = planet;
+        const wasPrison = this.inPrison;
         this.inPrison = planet && planet.startsWith("Prison");
         
         // Also check for PRISON message format (when you get imprisoned)
@@ -1897,105 +1899,155 @@ class GameLogic {
         this.addLog(this.wsNumber, `📍 Planet: ${planetInfo}`);
         console.log(`[WS${this.wsNumber}] Prison status: ${this.inPrison}, Planet: ${planet}`);
         
+        // Trigger escape if we just entered prison OR if we're still in prison
         if (this.inPrison && this.config.autorelease) {
-            this.addLog(this.wsNumber, `🔓 Prison detected - attempting escape`);
+            if (!wasPrison) {
+                // Just entered prison
+                this.addLog(this.wsNumber, `🔓 Prison detected - attempting escape`);
+            } else {
+                // Still in prison (maybe escape failed before)
+                console.log(`[WS${this.wsNumber}] Still in prison - retrying escape`);
+            }
+            
             setTimeout(async () => {
-                await this.escapeAll();
+                const success = await this.escapeAll();
                 
-                // Rejoin target planet after escape
-                const targetPlanet = this.config.planet;
-                if (targetPlanet && ws.readyState === ws.OPEN) {
-                    setTimeout(() => {
-                        if (ws.readyState === ws.OPEN) {
-                            ws.send(`JOIN ${targetPlanet}\r\n`);
-                            this.addLog(this.wsNumber, `🔄 Rejoining ${targetPlanet}`);
-                        }
-                    }, 3000);
+                if (success) {
+                    // Rejoin target planet after successful escape
+                    const targetPlanet = this.config.planet;
+                    if (targetPlanet && ws.readyState === ws.OPEN) {
+                        setTimeout(() => {
+                            if (ws.readyState === ws.OPEN) {
+                                console.log(`[WS${this.wsNumber}] Rejoining ${targetPlanet} after escape`);
+                                ws.send(`JOIN ${targetPlanet}\r\n`);
+                                this.addLog(this.wsNumber, `🔄 Rejoining ${targetPlanet}`);
+                            }
+                        }, 2000);
+                    }
+                } else {
+                    // Escape failed - will retry on next 900 message
+                    console.log(`[WS${this.wsNumber}] Escape failed - will retry`);
                 }
             }, 1000);
         }
     }
 
+    // ==================== HELPER METHODS FOR USER DEPARTURE ====================
+    
+    /**
+     * Remove user from all tracking arrays and clean up
+     * @param {string} userid - User ID to remove
+     */
+    removeUserFromTracking(userid) {
+        // Remove from Sets/Maps - O(1) operation
+        this.targetids.delete(userid);
+        this.targetnames.delete(userid);
+        this.attackids.delete(userid);
+        this.attacknames.delete(userid);
+        
+        // Clean up appearance time
+        delete this.userAppearanceTime[userid];
+    }
+    
+    /**
+     * Handle smart mode target switching when current target leaves
+     * @param {WebSocket} ws - WebSocket connection
+     * @param {string} userid - User ID that left
+     */
+    handleSmartTargetSwitch(ws, userid) {
+        if (!this.config.smart || userid !== this.useridattack || this.attackids.size === 0) {
+            return false;
+        }
+        
+        const newTarget = this.selectSmartTarget();
+        if (!newTarget) {
+            return false;
+        }
+        
+        this.useridattack = newTarget.id;
+        this.userFound = true;
+        this.addLog(this.wsNumber, `🎯 Smart Switch: ${newTarget.name}`);
+        
+        // Calculate elapsed time since new target appeared
+        const appearanceTime = this.userAppearanceTime[newTarget.id] || Date.now();
+        const elapsedTime = Date.now() - appearanceTime;
+        const fullTiming = this.getTiming("attack");
+        const remainingTime = Math.max(100, fullTiming - elapsedTime);
+        
+        this.addLog(this.wsNumber, `⏱️ Adjusting timing: ${elapsedTime}ms elapsed, ${remainingTime}ms remaining`);
+        
+        // Clear old timeout and set new one with adjusted timing
+        if (this.timeout) {
+            clearTimeout(this.timeout);
+        }
+        
+        this.timeout = setTimeout(() => {
+            if (this.useridattack === this.founderUserId) {
+                this.addLog(this.wsNumber, `👑 Cancelled attack - target is planet owner`);
+                this.userFound = false;
+                return;
+            }
+            
+            if (ws.readyState === ws.OPEN) {
+                ws.send(`ACTION 3 ${this.useridattack}\r\n`);
+                this.markTargetAttacked(this.useridattack);
+                this.addLog(this.wsNumber, `⚔️ Attacked ${newTarget.name}!`);
+                
+                if (this.config.sleeping && this.config.connected) {
+                    ws.send("QUIT :ds\r\n");
+                    this.addLog(this.wsNumber, `🚪 QUIT`);
+                    return this.OffSleep(ws);
+                }
+                
+                if (this.config.autorelease || this.config.exitting) {
+                    ws.send("QUIT :ds\r\n");
+                    this.addLog(this.wsNumber, `🚪 QUIT after attack`);
+                }
+            }
+        }, remainingTime);
+        
+        return true;
+    }
+    
+    /**
+     * Handle when current target leaves (PART or SLEEP)
+     * @param {string} userid - User ID that left
+     */
+    handleCurrentTargetDeparture(userid) {
+        if (userid !== this.useridtarget) {
+            return false;
+        }
+        
+        this.userFound = false;
+        this.useridtarget = null;
+        this.useridattack = null;
+        
+        if (this.timeout) {
+            clearTimeout(this.timeout);
+            this.timeout = null;
+        }
+        
+        return true;
+    }
+
+    // ==================== PART/SLEEP MESSAGE HANDLERS ====================
+
     handlePartMessage(ws, snippets, text) {
         try {
             const userid = snippets[1] ? snippets[1].replace(/(\r\n|\n|\r)/gm, "") : "";
             
-            if (userid === this.useridtarget) {
+            // Handle if this is our current target
+            if (this.handleCurrentTargetDeparture(userid)) {
                 this.addLog(this.wsNumber, `👋 Target left: ${userid}`);
-                this.userFound = false;
-                this.useridtarget = null;
-                this.useridattack = null;
-                if (this.timeout) {
-                    clearTimeout(this.timeout);
-                    this.timeout = null;
-                }
             }
 
-            // Remove from target arrays and clean up appearance time
-            const index = this.targetids.indexOf(userid);
-            if (index > -1) {
-                this.targetids.splice(index, 1);
-                this.targetnames.splice(index, 1);
-            }
-            
-            const attackIndex = this.attackids.indexOf(userid);
-            if (attackIndex > -1) {
-                this.attackids.splice(attackIndex, 1);
-                this.attacknames.splice(attackIndex, 1);
-            }
-            
-            // Clean up appearance time
-            delete this.userAppearanceTime[userid];
+            // Remove from tracking arrays
+            this.removeUserFromTracking(userid);
 
-            // SMART MODE: Switch to new target if current target left
-            if (this.config.smart && userid === this.useridattack && this.attackids.length > 0) {
-                const newTarget = this.selectSmartTarget();
-                if (newTarget) {
-                    this.useridattack = newTarget.id;
-                    this.userFound = true;
-                    this.addLog(this.wsNumber, `🎯 Smart Switch: ${newTarget.name}`);
-                    
-                    // Calculate elapsed time since new target appeared
-                    const appearanceTime = this.userAppearanceTime[newTarget.id] || Date.now();
-                    const elapsedTime = Date.now() - appearanceTime;
-                    const fullTiming = this.getTiming("attack");
-                    const remainingTime = Math.max(100, fullTiming - elapsedTime);
-                    
-                    this.addLog(this.wsNumber, `⏱️ Adjusting timing: ${elapsedTime}ms elapsed, ${remainingTime}ms remaining`);
-                    
-                    // Clear old timeout and set new one with adjusted timing
-                    if (this.timeout) {
-                        clearTimeout(this.timeout);
-                    }
-                    
-                    this.timeout = setTimeout(() => {
-                        if (this.useridattack === this.founderUserId) {
-                            this.addLog(this.wsNumber, `👑 Cancelled attack - target is planet owner`);
-                            this.userFound = false;
-                            return;
-                        }
-                        
-                        if (ws.readyState === ws.OPEN) {
-                            ws.send(`ACTION 3 ${this.useridattack}\r\n`);
-                            this.markTargetAttacked(this.useridattack);
-                            this.addLog(this.wsNumber, `⚔️ Attacked ${newTarget.name}!`);
-                            
-                            if (this.config.sleeping && this.config.connected) {
-                                ws.send("QUIT :ds\r\n");
-                                this.addLog(this.wsNumber, `🚪 QUIT`);
-                                return this.OffSleep(ws);
-                            }
-                            
-                            if (this.config.autorelease || this.config.exitting) {
-                                ws.send("QUIT :ds\r\n");
-                                this.addLog(this.wsNumber, `🚪 QUIT after attack`);
-                            }
-                        }
-                    }, remainingTime);
-                }
-            }
+            // Try to switch to new target in Smart Mode
+            this.handleSmartTargetSwitch(ws, userid);
             
-            // SMART MODE: Clear timeout if no targets left
+            // Check if no targets left
             if (this.config.smart && this.targetids.length === 0) {
                 if (this.timeout) {
                     clearTimeout(this.timeout);
@@ -2016,110 +2068,39 @@ class GameLogic {
             // Check if sleeping user is the planet founder
             const isFounder = (userid === this.founderUserId);
             
-            // Check if it's our target
-            if (userid === this.useridtarget) {
+            // Handle if this is our current target
+            if (this.handleCurrentTargetDeparture(userid)) {
                 if (isFounder) {
                     this.addLog(this.wsNumber, `👑 Planet owner sleeping: ${userid} - staying on planet`);
-                } else {
-                    this.addLog(this.wsNumber, `💤 Target sleeping: ${userid}`);
-                }
-                
-                this.userFound = false;
-                this.useridtarget = null;
-                this.useridattack = null;
-                
-                if (this.timeout) {
-                    clearTimeout(this.timeout);
-                    this.timeout = null;
-                }
-                
-                // If founder is sleeping, DON'T quit - stay on planet and wait for other rivals
-                if (isFounder) {
+                    // Stay on planet and wait for other rivals
                     this.addLog(this.wsNumber, `⏸️ Waiting for other rivals on planet`);
                     return;
-                }
-                
-                // For non-founder targets, proceed with normal quit/reconnect logic
-                if (this.config.sleeping || this.config.exitting) {
-                    setTimeout(() => {
-                        if (ws.readyState === ws.OPEN) {
-                            ws.send("QUIT :ds\r\n");
-                            this.addLog(this.wsNumber, `🚪 QUIT (target sleeping)`);
-                            
-                            if (this.config.sleeping && this.config.connected) {
-                                this.OffSleep(ws);
+                } else {
+                    this.addLog(this.wsNumber, `💤 Target sleeping: ${userid}`);
+                    
+                    // For non-founder targets, quit if configured
+                    if (this.config.sleeping || this.config.exitting) {
+                        setTimeout(() => {
+                            if (ws.readyState === ws.OPEN) {
+                                ws.send("QUIT :ds\r\n");
+                                this.addLog(this.wsNumber, `🚪 QUIT (target sleeping)`);
+                                
+                                if (this.config.sleeping && this.config.connected) {
+                                    this.OffSleep(ws);
+                                }
                             }
-                        }
-                    }, 100);
-                }
-            }
-
-            // Remove from ALL target arrays and clean up appearance time
-            const index = this.targetids.indexOf(userid);
-            if (index > -1) {
-                this.targetids.splice(index, 1);
-                this.targetnames.splice(index, 1);
-                this.addLog(this.wsNumber, `Removed sleeping user from targets`);
-            }
-            
-            const attackIndex = this.attackids.indexOf(userid);
-            if (attackIndex > -1) {
-                this.attackids.splice(attackIndex, 1);
-                this.attacknames.splice(attackIndex, 1);
-            }
-            
-            // Clean up appearance time
-            delete this.userAppearanceTime[userid];
-
-            // SMART MODE: Switch to new target if current target is sleeping
-            if (this.config.smart && userid === this.useridattack && this.attackids.length > 0) {
-                const newTarget = this.selectSmartTarget();
-                if (newTarget) {
-                    this.useridattack = newTarget.id;
-                    this.userFound = true;
-                    this.addLog(this.wsNumber, `🎯 Smart Switch: ${newTarget.name}`);
-                    
-                    // Calculate elapsed time since new target appeared
-                    const appearanceTime = this.userAppearanceTime[newTarget.id] || Date.now();
-                    const elapsedTime = Date.now() - appearanceTime;
-                    const fullTiming = this.getTiming("attack");
-                    const remainingTime = Math.max(100, fullTiming - elapsedTime);
-                    
-                    this.addLog(this.wsNumber, `⏱️ Adjusting timing: ${elapsedTime}ms elapsed, ${remainingTime}ms remaining`);
-                    
-                    // Clear old timeout and set new one with adjusted timing
-                    if (this.timeout) {
-                        clearTimeout(this.timeout);
+                        }, 100);
                     }
-                    
-                    this.timeout = setTimeout(() => {
-                        if (this.useridattack === this.founderUserId) {
-                            this.addLog(this.wsNumber, `👑 Cancelled attack - target is planet owner`);
-                            this.userFound = false;
-                            return;
-                        }
-                        
-                        if (ws.readyState === ws.OPEN) {
-                            ws.send(`ACTION 3 ${this.useridattack}\r\n`);
-                            this.markTargetAttacked(this.useridattack);
-                            this.addLog(this.wsNumber, `⚔️ Attacked ${newTarget.name}!`);
-                            
-                            if (this.config.sleeping && this.config.connected) {
-                                ws.send("QUIT :ds\r\n");
-                                this.addLog(this.wsNumber, `🚪 QUIT`);
-                                return this.OffSleep(ws);
-                            }
-                            
-                            if (this.config.autorelease || this.config.exitting) {
-                                ws.send("QUIT :ds\r\n");
-                                this.addLog(this.wsNumber, `🚪 QUIT after attack`);
-                            }
-                        }
-                    }, remainingTime);
                 }
             }
+
+            // Remove from tracking arrays
+            this.removeUserFromTracking(userid);
+
+            // Try to switch to new target in Smart Mode
+            this.handleSmartTargetSwitch(ws, userid);
             
-            // SMART MODE: Clear timeout if no targets left
+            // Check if no targets left
             if (this.config.smart && this.targetids.length === 0) {
                 if (this.timeout) {
                     clearTimeout(this.timeout);
@@ -2133,14 +2114,46 @@ class GameLogic {
         }
     }
 
+    // ==================== 850 MESSAGE HANDLER ====================
+
     handle850Message(ws, snippets, text) {
         try {
             if (snippets[1] === ":<div") {
                 return;
             }
 
-            // Check for 3-second error (TOO SLOW!)
+            const messageText = text.toLowerCase();
+            let is3SecondError = false;
+            let isSuccess = false;
+            
+            // APPROACH 1: Precise detection (current method - most reliable)
             if (snippets.length >= 7 && snippets[6] === "3s") {
+                is3SecondError = true;
+                console.log(`[WS${this.wsNumber}] 3s error detected (precise match)`);
+            }
+            // APPROACH 2: Fallback keyword detection (backup for format changes)
+            else if (messageText.includes('3s') || 
+                     messageText.includes('3 second') || 
+                     messageText.includes('three second')) {
+                is3SecondError = true;
+                console.log(`[WS${this.wsNumber}] 3s error detected (keyword match)`);
+            }
+            
+            // APPROACH 1: Precise success detection
+            if (snippets.length >= 4 && snippets[3] === "allows") {
+                isSuccess = true;
+                console.log(`[WS${this.wsNumber}] Success detected (precise match)`);
+            }
+            // APPROACH 2: Fallback keyword detection for success
+            else if (messageText.includes('allows you to imprison') || 
+                     messageText.includes('imprisoned for') ||
+                     messageText.includes('authority allows')) {
+                isSuccess = true;
+                console.log(`[WS${this.wsNumber}] Success detected (keyword match)`);
+            }
+            
+            // Handle 3-second error (TOO SLOW!)
+            if (is3SecondError) {
                 this.threesec = true;
                 this.consecutiveErrors++;  // Track for adaptive step size
                 this.consecutiveSuccesses = 0;  // Reset success counter
@@ -2162,8 +2175,8 @@ class GameLogic {
                 }
             }
             
-            // Check for success event (we actually imprisoned someone!)
-            if (snippets.length >= 4 && snippets[3] === "allows") {
+            // Handle success event (we actually imprisoned someone!)
+            if (isSuccess) {
                 this.consecutiveErrors = 0;  // Reset error counter
                 this.consecutiveSuccesses++;  // Track successes
                 this.addLog(this.wsNumber, `✅ Success - Imprisoned target!`);
@@ -2198,14 +2211,41 @@ class GameLogic {
 
     // ==================== ESCAPE LOGIC ====================
     async escapeAll() {
-        if (!this.inPrison) return false;
+        if (!this.inPrison) {
+            console.log(`[WS${this.wsNumber}] Not in prison, skipping escape`);
+            return false;
+        }
+        
+        console.log(`[WS${this.wsNumber}] 🔓 Starting escape attempt...`);
+        this.addLog(this.wsNumber, `🔓 Attempting escape...`);
+        
         const fns = [];
         for (let i = 1; i <= 5; i++) {
             if (this.config[`rc${i}`]) fns.push(this.escapeWithCode(this.config[`rc${i}`], `RC${i}`));
             if (this.config[`rcl${i}`]) fns.push(this.escapeWithCode(this.config[`rcl${i}`], `RCL${i}`));
         }
+        
+        if (fns.length === 0) {
+            console.log(`[WS${this.wsNumber}] ❌ No recovery codes configured`);
+            this.addLog(this.wsNumber, `❌ No recovery codes configured`);
+            return false;
+        }
+        
+        console.log(`[WS${this.wsNumber}] Trying ${fns.length} recovery code(s)...`);
+        
         const results = await Promise.all(fns);
-        return results.some(r => r === true);
+        const success = results.some(r => r === true);
+        
+        if (success) {
+            console.log(`[WS${this.wsNumber}] ✅ Escape successful!`);
+            this.addLog(this.wsNumber, `✅ Escaped from prison!`);
+            this.inPrison = false; // Mark as escaped
+        } else {
+            console.log(`[WS${this.wsNumber}] ❌ All escape attempts failed`);
+            this.addLog(this.wsNumber, `❌ Escape failed - check recovery codes`);
+        }
+        
+        return success;
     }
 
     async escapeWithCode(recoveryCode, label) {
@@ -2328,8 +2368,22 @@ class GameLogic {
 
     OffSleep(ws) {
         try {
-            console.log(`[WS${this.wsNumber}] ⏰ OffSleep called - config.connected=${this.config.connected}, retryCount=${this.offSleepRetryCount}`);
+            console.log(`[WS${this.wsNumber}] ⏰ OffSleep called - config.connected=${this.config.connected}, retryCount=${this.offSleepRetryCount}, isActive=${this.isOffSleepActive}`);
             this.addLog(this.wsNumber, `⏰ OffSleep START (connected=${this.config.connected}, retry=${this.offSleepRetryCount})`);
+            
+            // RACE CONDITION FIX: Prevent multiple simultaneous reconnect attempts
+            if (this.isOffSleepActive) {
+                console.log(`[WS${this.wsNumber}] ⚠️ OffSleep already active - skipping duplicate call`);
+                this.addLog(this.wsNumber, `⚠️ Reconnect already in progress`);
+                return;
+            }
+            
+            // RACE CONDITION FIX: Clear any existing timeout before creating new one
+            if (this.reconnectTimeoutId) {
+                console.log(`[WS${this.wsNumber}] ⚠️ Clearing existing reconnect timeout: ${this.reconnectTimeoutId}`);
+                clearTimeout(this.reconnectTimeoutId);
+                this.reconnectTimeoutId = null;
+            }
             
             // Check maximum retry limit
             if (this.offSleepRetryCount >= this.maxOffSleepRetries) {
@@ -2340,14 +2394,16 @@ class GameLogic {
                 return;
             }
             
-            // Set flag to prevent race condition with ws.on('close') handler
+            // Set flag to prevent race condition
             this.isOffSleepActive = true;
             
-            // DON'T terminate WebSocket here - QUIT command already sent!
-            console.log(`[WS${this.wsNumber}] Waiting for clean close from QUIT command`);
-            this.addLog(this.wsNumber, `⏳ Waiting for server to close connection`);
+            // CONNECTION STATE FIX: Check if WebSocket is actually closed
+            if (ws && ws.readyState !== ws.CLOSED && ws.readyState !== ws.CLOSING) {
+                console.log(`[WS${this.wsNumber}] ⚠️ WebSocket not fully closed yet (state: ${ws.readyState}), waiting...`);
+                this.addLog(this.wsNumber, `⏳ Waiting for connection to close`);
+            }
             
-            // Schedule reconnection with exponential backoff + jitter
+            // EXPONENTIAL BACKOFF: Calculate reconnect time with backoff
             const baseReconnectTime = parseInt(this.config.reconnect || 5000);
             const backoffMultiplier = Math.pow(1.5, this.offSleepRetryCount); // 1.5x per retry
             const maxBackoff = 60000; // Max 60 seconds
@@ -2358,7 +2414,7 @@ class GameLogic {
             const jitter = (Math.random() * jitterRange * 2) - jitterRange;
             const reconnectTime = Math.max(100, Math.floor(backoffTime + jitter)); // Min 100ms
             
-            console.log(`[WS${this.wsNumber}] Creating reconnect timeout (base=${baseReconnectTime}ms, backoff=${Math.floor(backoffTime)}ms, jitter=${Math.floor(jitter)}ms, final=${reconnectTime}ms)`);
+            console.log(`[WS${this.wsNumber}] Reconnect timing: base=${baseReconnectTime}ms, backoff=${Math.floor(backoffTime)}ms, jitter=${Math.floor(jitter)}ms, final=${reconnectTime}ms`);
             this.addLog(this.wsNumber, `⏱️ Reconnect in ${Math.floor(reconnectTime/1000)}s (retry ${this.offSleepRetryCount + 1}/${this.maxOffSleepRetries})`);
             
             // Increment retry count
@@ -2394,6 +2450,8 @@ class GameLogic {
                 } else {
                     console.error(`[WS${this.wsNumber}] ❌ ERROR: reconnect callback is not defined!`);
                     this.addLog(this.wsNumber, `❌ ERROR: Cannot reconnect - callback missing`);
+                    this.isOffSleepActive = false;
+                    this.offSleepRetryCount = 0;
                 }
             }, reconnectTime);
             
@@ -2405,6 +2463,7 @@ class GameLogic {
         } catch (error) {
             console.error(`[WS${this.wsNumber}] Error in OffSleep:`, error);
             this.isOffSleepActive = false;
+            this.offSleepRetryCount = 0;
             this.reconnectTimeoutId = null;
         }
     }
@@ -2430,17 +2489,17 @@ class GameLogic {
             wsNumber: this.wsNumber,
             id: this.id,
             username: this.finalusername,
-            targetids: [...this.targetids],
-            targetnames: [...this.targetnames],
-            attackids: [...this.attackids],
-            attacknames: [...this.attacknames],
+            targetids: Array.from(this.targetids),
+            targetnames: Array.from(this.targetnames.entries()),
+            attackids: Array.from(this.attackids),
+            attacknames: Array.from(this.attacknames.entries()),
             useridtarget: this.useridtarget,
             useridattack: this.useridattack,
             userFound: this.userFound,
             status: this.status,
             threesec: this.threesec,
-            targetCount: this.targetids.length,
-            attackCount: this.attackids.length,
+            targetCount: this.targetids.size,
+            attackCount: this.attackids.size,
             currentAttackTiming: this.config[`attack${this.wsNumber}`],
             currentWaitingTiming: this.config[`waiting${this.wsNumber}`]
         };
