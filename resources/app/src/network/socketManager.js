@@ -108,46 +108,71 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
     });
 
     ws.on('message', (data) => {
-        const text = data.toString();
-        const snippets = text.split(" ");
-        
-        // Debug: Log ALL raw messages
-        console.log(`[WS${wsNumber}] RAW MESSAGE:`, text.substring(0, 200));
-        console.log(`[WS${wsNumber}] Parsed command: ${snippets[0]}`);
+        try {
+            const text = data.toString();
+            
+            // Validate message is not empty or malformed
+            if (!text || text.trim().length === 0) {
+                console.warn(`[WS${wsNumber}] Received empty message, ignoring`);
+                return;
+            }
+            
+            const snippets = text.split(" ");
+            
+            // Validate command exists
+            if (!snippets[0] || snippets[0].trim().length === 0) {
+                console.warn(`[WS${wsNumber}] Malformed message (no command):`, text.substring(0, 100));
+                return;
+            }
+            
+            // Debug: Log ALL raw messages
+            console.log(`[WS${wsNumber}] RAW MESSAGE:`, text.substring(0, 200));
+            console.log(`[WS${wsNumber}] Parsed command: ${snippets[0]}`);
 
-        if (snippets[0] === "HAAAPSI") {
-            savedHaaapsi = snippets[1];
-            gameLogic.haaapsi = savedHaaapsi;
-            ws.send(`RECOVER ${recoveryCode}\r\n`);
-            addLog(wsNumber, `Recovering with code: ${recoveryCode}`);
-        }
+            if (snippets[0] === "HAAAPSI") {
+                if (!snippets[1]) {
+                    console.error(`[WS${wsNumber}] HAAAPSI message missing data`);
+                    addLog(wsNumber, `❌ Invalid HAAAPSI message`);
+                    return;
+                }
+                savedHaaapsi = snippets[1];
+                gameLogic.haaapsi = savedHaaapsi;
+                ws.send(`RECOVER ${recoveryCode}\r\n`);
+                addLog(wsNumber, `Recovering with code: ${recoveryCode}`);
+            }
 
-        if (snippets[0] === "REGISTER") {
-            const id = snippets[1];
-            const password = snippets[2];
-            const username = snippets[3].split("\r\n")[0];
-            const temp = gameLogic.parseHaaapsi(savedHaaapsi);
+            if (snippets[0] === "REGISTER") {
+                if (!snippets[1] || !snippets[2] || !snippets[3]) {
+                    console.error(`[WS${wsNumber}] REGISTER message missing required fields`);
+                    addLog(wsNumber, `❌ Invalid REGISTER message`);
+                    return;
+                }
+                
+                const id = snippets[1];
+                const password = snippets[2];
+                const username = snippets[3].split("\r\n")[0];
+                const temp = gameLogic.parseHaaapsi(savedHaaapsi);
 
-            gameLogic.id = id;
-            gameLogic.useridg = id;
-            gameLogic.passwordg = password;
-            gameLogic.finalusername = username;
+                gameLogic.id = id;
+                gameLogic.useridg = id;
+                gameLogic.passwordg = password;
+                gameLogic.finalusername = username;
 
-            ws.send(`USER ${id} ${password} ${username} ${temp}\r\n`);
-            addLog(wsNumber, `Registered as: ${username}`);
-        }
+                ws.send(`USER ${id} ${password} ${username} ${temp}\r\n`);
+                addLog(wsNumber, `Registered as: ${username}`);
+            }
 
-        if (snippets[0] === "999") {
-            ws.send("FWLISTVER 0\r\n");
-            ws.send("ADDONS 0 0\r\n");
-            ws.send("MYADDONS 0 0\r\n");
-            ws.send("PHONE 1366 768 0 2 :chrome 113.0.0.0\r\n");
+            if (snippets[0] === "999") {
+                ws.send("FWLISTVER 0\r\n");
+                ws.send("ADDONS 0 0\r\n");
+                ws.send("MYADDONS 0 0\r\n");
+                ws.send("PHONE 1366 768 0 2 :chrome 113.0.0.0\r\n");
 
-            const planet = appState.config.planet;
-            if (planet && planet !== "") {
-                ws.send(`JOIN ${planet}\r\n`);
-                addLog(wsNumber, `Connection established. Joining ${planet}`);
-            } else {
+                const planet = appState.config.planet;
+                if (planet && planet !== "") {
+                    ws.send(`JOIN ${planet}\r\n`);
+                    addLog(wsNumber, `Connection established. Joining ${planet}`);
+                } else {
                 ws.send("JOIN\r\n");
                 addLog(wsNumber, `Connection established.`);
             }
@@ -157,17 +182,22 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
             ws.send("PONG\r\n");
         }
 
-        // Delegate to GameLogic handlers
-        if (snippets[0] === "353") gameLogic.handle353Message(ws, snippets, text);
-        if (snippets[0] === "JOIN") gameLogic.handleJoinMessage(ws, snippets, text);
-        if (snippets[0] === "PART") gameLogic.handlePartMessage(ws, snippets, text);
-        if (snippets[0] === "SLEEP") gameLogic.handleSleepMessage(ws, snippets, text);
-        if (snippets[0] === "850") gameLogic.handle850Message(ws, snippets, text);
-        if (snippets[0] === "452") gameLogic.handle452Message(ws, snippets, text);
-        if (snippets[0] === "860") gameLogic.handle860Message(ws, snippets, text);
-        if (snippets[0] === "471") gameLogic.handle471Message(ws, snippets, text);
-        if (snippets[0] === "900" || snippets[0].trim() === "900") gameLogic.handle900Message(ws, snippets, text);
-        if (snippets[0] === "FOUNDER") gameLogic.handleFounderMessage(ws, snippets, text);
+        // Delegate to GameLogic handlers with error handling
+        try {
+            if (snippets[0] === "353") gameLogic.handle353Message(ws, snippets, text);
+            if (snippets[0] === "JOIN") gameLogic.handleJoinMessage(ws, snippets, text);
+            if (snippets[0] === "PART") gameLogic.handlePartMessage(ws, snippets, text);
+            if (snippets[0] === "SLEEP") gameLogic.handleSleepMessage(ws, snippets, text);
+            if (snippets[0] === "850") gameLogic.handle850Message(ws, snippets, text);
+            if (snippets[0] === "452") gameLogic.handle452Message(ws, snippets, text);
+            if (snippets[0] === "860") gameLogic.handle860Message(ws, snippets, text);
+            if (snippets[0] === "471") gameLogic.handle471Message(ws, snippets, text);
+            if (snippets[0] === "900" || snippets[0].trim() === "900") gameLogic.handle900Message(ws, snippets, text);
+            if (snippets[0] === "FOUNDER") gameLogic.handleFounderMessage(ws, snippets, text);
+        } catch (handlerError) {
+            console.error(`[WS${wsNumber}] Error in message handler for ${snippets[0]}:`, handlerError);
+            addLog(wsNumber, `❌ Handler error: ${snippets[0]} - ${handlerError.message}`);
+        }
         
         // Handle PRISON message (when you get imprisoned)
         if (snippets[1] === "PRISON" && snippets[2] === "0") {
@@ -193,6 +223,11 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
                     }
                 }, 1000);
             }
+        }
+        
+        } catch (error) {
+            console.error(`[WS${wsNumber}] Error processing message:`, error);
+            addLog(wsNumber, `❌ Message processing error: ${error.message}`);
         }
     });
 

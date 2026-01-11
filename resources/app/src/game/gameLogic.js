@@ -59,11 +59,123 @@ class GameLogic {
         this.targetIndex = 0;
         this.cooldownDuration = 3500;
         this.userAppearanceTime = {}; // Track when each user appeared on planet
+        
+        // Dad+ Mode (WHOIS retry logic)
+        this.whoisPendingRequests = new Map(); // userid -> { retries, timestamp, timeout }
+        this.whoisMaxRetries = 3;
+        this.whoisTimeout = 5000; // 5 seconds timeout per request
     }
 
     // Helper methods
     parseHaaapsi(e) { return parseHaaapsi(e); }
     countOccurrences(arr, val) { return countOccurrences(arr, val); }
+    
+    // ==================== SAFE WEBSOCKET OPERATIONS ====================
+    
+    /**
+     * Safely send a WebSocket message with error handling
+     * @param {WebSocket} ws - WebSocket connection
+     * @param {string} message - Message to send
+     * @param {string} context - Context for logging (e.g., "ATTACK", "KICK")
+     * @returns {boolean} - True if sent successfully, false otherwise
+     */
+    safeSend(ws, message, context = "MESSAGE") {
+        try {
+            if (!ws) {
+                console.error(`[WS${this.wsNumber}] ${context} - WebSocket is null`);
+                this.addLog(this.wsNumber, `❌ ${context} failed - No connection`);
+                return false;
+            }
+            
+            if (ws.readyState !== ws.OPEN) {
+                console.error(`[WS${this.wsNumber}] ${context} - WebSocket not open (state: ${ws.readyState})`);
+                this.addLog(this.wsNumber, `❌ ${context} failed - Connection not ready`);
+                return false;
+            }
+            
+            ws.send(message);
+            console.log(`[WS${this.wsNumber}] ${context} - Sent: ${message.substring(0, 50)}`);
+            return true;
+            
+        } catch (error) {
+            console.error(`[WS${this.wsNumber}] ${context} - Send error:`, error.message);
+            this.addLog(this.wsNumber, `❌ ${context} failed - ${error.message}`);
+            return false;
+        }
+    }
+    
+    /**
+     * Send WHOIS request with retry logic for Dad+ mode
+     * @param {WebSocket} ws - WebSocket connection
+     * @param {string} userid - User ID to query
+     * @param {number} retryCount - Current retry attempt
+     */
+    sendWhoisWithRetry(ws, userid, retryCount = 0) {
+        try {
+            if (!userid || userid === this.useridg || userid === this.founderUserId) {
+                return;
+            }
+            
+            // Check if already pending
+            if (this.whoisPendingRequests.has(userid)) {
+                const existing = this.whoisPendingRequests.get(userid);
+                console.log(`[WS${this.wsNumber}] WHOIS for ${userid} already pending (retry ${existing.retries})`);
+                return;
+            }
+            
+            // Send WHOIS request
+            const sent = this.safeSend(ws, `WHOIS ${userid}\r\n`, "WHOIS");
+            
+            if (!sent) {
+                console.error(`[WS${this.wsNumber}] Failed to send WHOIS for ${userid}`);
+                return;
+            }
+            
+            // Track pending request
+            const timeoutId = setTimeout(() => {
+                if (this.whoisPendingRequests.has(userid)) {
+                    const request = this.whoisPendingRequests.get(userid);
+                    console.log(`[WS${this.wsNumber}] WHOIS timeout for ${userid} (retry ${request.retries}/${this.whoisMaxRetries})`);
+                    
+                    // Remove from pending
+                    this.whoisPendingRequests.delete(userid);
+                    
+                    // Retry if under limit
+                    if (request.retries < this.whoisMaxRetries) {
+                        console.log(`[WS${this.wsNumber}] Retrying WHOIS for ${userid}...`);
+                        setTimeout(() => {
+                            this.sendWhoisWithRetry(ws, userid, request.retries + 1);
+                        }, 1000); // Wait 1 second before retry
+                    } else {
+                        console.error(`[WS${this.wsNumber}] WHOIS for ${userid} failed after ${this.whoisMaxRetries} retries`);
+                        this.addLog(this.wsNumber, `⚠️ Dad+ check failed for user ${userid}`);
+                    }
+                }
+            }, this.whoisTimeout);
+            
+            this.whoisPendingRequests.set(userid, {
+                retries: retryCount,
+                timestamp: Date.now(),
+                timeout: timeoutId
+            });
+            
+        } catch (error) {
+            console.error(`[WS${this.wsNumber}] Error in sendWhoisWithRetry:`, error);
+        }
+    }
+    
+    /**
+     * Mark WHOIS request as completed (call when 860 response received)
+     * @param {string} userid - User ID that was queried
+     */
+    completeWhoisRequest(userid) {
+        if (this.whoisPendingRequests.has(userid)) {
+            const request = this.whoisPendingRequests.get(userid);
+            clearTimeout(request.timeout);
+            this.whoisPendingRequests.delete(userid);
+            console.log(`[WS${this.wsNumber}] WHOIS completed for ${userid}`);
+        }
+    }
 
     resetState() {
         this.haaapsi = null;
@@ -84,6 +196,14 @@ class GameLogic {
         if (this.innerTimeouts && this.innerTimeouts.length > 0) {
             this.innerTimeouts.forEach(t => clearTimeout(t));
             this.innerTimeouts = [];
+        }
+        
+        // Clear pending WHOIS requests
+        if (this.whoisPendingRequests && this.whoisPendingRequests.size > 0) {
+            this.whoisPendingRequests.forEach((request, userid) => {
+                clearTimeout(request.timeout);
+            });
+            this.whoisPendingRequests.clear();
         }
 
         this.isOffSleepActive = false;
@@ -411,11 +531,8 @@ class GameLogic {
                     if (userid === this.useridg || userid === this.founderUserId) return;
                     
                     setTimeout(() => {
-                        if (ws.readyState === ws.OPEN) {
-                            ws.send(`WHOIS ${userid}\r\n`);
-                            console.log(`[WS${this.wsNumber}] Dad+ mode - Sent WHOIS for ${userid}`);
-                        }
-                    }, index * 50);
+                        this.sendWhoisWithRetry(ws, userid);
+                    }, index * 100); // Increased from 50ms to 100ms to avoid rate limiting
                 });
             }
             
@@ -636,11 +753,8 @@ class GameLogic {
                     if (userid === this.useridg || userid === this.founderUserId) return;
                     
                     setTimeout(() => {
-                        if (ws.readyState === ws.OPEN) {
-                            ws.send(`WHOIS ${userid}\r\n`);
-                            console.log(`[WS${this.wsNumber}] Dad+ mode - Sent WHOIS for ${userid}`);
-                        }
-                    }, index * 50); // Stagger requests by 50ms
+                        this.sendWhoisWithRetry(ws, userid);
+                    }, index * 100); // Increased from 50ms to 100ms to avoid rate limiting
                 });
             }
             
@@ -847,11 +961,8 @@ class GameLogic {
                     if (userid === this.useridg || userid === this.founderUserId) return;
                     
                     setTimeout(() => {
-                        if (ws.readyState === ws.OPEN) {
-                            ws.send(`WHOIS ${userid}\r\n`);
-                            console.log(`[WS${this.wsNumber}] Dad+ mode - Sent WHOIS for ${userid}`);
-                        }
-                    }, index * 50);
+                        this.sendWhoisWithRetry(ws, userid);
+                    }, index * 100); // Increased from 50ms to 100ms to avoid rate limiting
                 });
             }
 
@@ -997,7 +1108,7 @@ class GameLogic {
             // Dad+ mode - request user info to check for aura
             if (this.config.dadplus && !shouldAct) {
                 console.log(`[WS${this.wsNumber}] Dad+ mode - Requesting user info for ${userid}`);
-                ws.send(`WHOIS ${userid}\r\n`);
+                this.sendWhoisWithRetry(ws, userid);
             }
             
             // Check "By Blacklist" mode
@@ -1222,7 +1333,7 @@ class GameLogic {
             // Dad+ mode - request user info to check for aura
             if (this.config.dadplus && !shouldBan) {
                 console.log(`[WS${this.wsNumber}] Dad+ mode - Requesting user info for ${userid}`);
-                ws.send(`WHOIS ${userid}\r\n`);
+                this.sendWhoisWithRetry(ws, userid);
             }
             
             // Execute BAN if conditions met
@@ -1378,21 +1489,37 @@ class GameLogic {
             // Check if Dad+ mode is enabled
             if (!this.config.dadplus) return;
             
-            // Check if message contains "aura" (special effect/status)
-            const textLower = text.toLowerCase();
-            if (!textLower.includes("aura")) return;
-            
             // Parse batch 860 response - can contain multiple users
             // Format: 860 userid1 data1 userid2 data2 userid3 data3 ...
-            // We need to find all userids that have "aura" in their data
             
-            console.log(`[WS${this.wsNumber}] Dad+ mode - Processing 860 message with aura`);
+            console.log(`[WS${this.wsNumber}] Dad+ mode - Processing 860 message`);
             
-            // Split by whitespace to find user IDs with aura
+            // Split by whitespace to find user IDs
             const parts = text.split(/\s+/);
+            const processedUsers = [];
+            
+            // Find all numeric user IDs (length >= 6) and mark WHOIS as complete
+            for (let i = 1; i < parts.length; i++) {
+                const part = parts[i];
+                // Check if this is a user ID (numeric, length >= 6)
+                if (!isNaN(part) && part.length >= 6) {
+                    processedUsers.push(part);
+                    this.completeWhoisRequest(part); // Mark WHOIS as complete
+                }
+            }
+            
+            console.log(`[WS${this.wsNumber}] Dad+ mode - Marked ${processedUsers.length} WHOIS requests as complete`);
+            
+            // Check if message contains "aura" (special effect/status)
+            const textLower = text.toLowerCase();
+            if (!textLower.includes("aura")) {
+                console.log(`[WS${this.wsNumber}] Dad+ mode - No aura found in 860 response`);
+                return;
+            }
+            
+            // Find all userids that have "aura" in their data
             const usersWithAura = [];
             
-            // Find all numeric user IDs (length >= 6) that are followed by data containing "aura"
             for (let i = 1; i < parts.length; i++) {
                 const part = parts[i];
                 // Check if this is a user ID (numeric, length >= 6)
@@ -1432,30 +1559,30 @@ class GameLogic {
                 
                 // Stagger actions to avoid flooding
                 setTimeout(() => {
-                    if (ws.readyState !== ws.OPEN) return;
-                    
                     // Check which mode we're in
                     if (this.config.modena === true) {
                         // N/A mode - BAN user with aura (applies to ALL connections)
                         console.log(`[WS${this.wsNumber}] Dad+ mode - BAN user with aura: ${userid}`);
                         this.addLog(this.wsNumber, `🚫 Dad+ Banning user with aura: ${userid}`);
-                        ws.send(`BAN ${userid}\r\n`);
+                        this.safeSend(ws, `BAN ${userid}\r\n`, "DAD+ BAN");
                     } else if (this.config.kickmode === true) {
                         // Kick mode
                         console.log(`[WS${this.wsNumber}] Dad+ mode - KICK user with aura: ${userid}`);
                         this.addLog(this.wsNumber, `👢 Dad+ Kicking user with aura: ${userid}`);
-                        ws.send(`KICK ${userid}\r\n`);
+                        this.safeSend(ws, `KICK ${userid}\r\n`, "DAD+ KICK");
                     } else {
                         // Imprison mode or Normal Attack mode
                         console.log(`[WS${this.wsNumber}] Dad+ mode - IMPRISON user with aura: ${userid}`);
                         this.addLog(this.wsNumber, `⚔️ Dad+ Imprisoning user with aura: ${userid}`);
-                        ws.send(`ACTION 3 ${userid}\r\n`);
-                        this.markTargetAttacked(userid);
+                        if (this.safeSend(ws, `ACTION 3 ${userid}\r\n`, "DAD+ IMPRISON")) {
+                            this.markTargetAttacked(userid);
+                        }
                     }
                 }, index * 100); // Stagger by 100ms
             });
         } catch (error) {
             console.error(`[WS${this.wsNumber}] Error in handle860Message:`, error);
+            this.addLog(this.wsNumber, `❌ Dad+ error: ${error.message}`);
         }
     }
 
