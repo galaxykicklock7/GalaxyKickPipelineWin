@@ -16,6 +16,7 @@ class GameLogic {
         this.useridg = null;
         this.passwordg = null;
         this.finalusername = null;
+        this.botGangName = null; // Track bot's own gang/clan name
 
         // Target tracking
         this.targetids = [];
@@ -189,6 +190,9 @@ class GameLogic {
         this.attacknames = [];
         this.useridattack = "";
         this.useridtarget = null;
+        
+        // Reset bot gang detection on disconnect
+        this.botGangName = null;
 
         if (this.timeout) { clearTimeout(this.timeout); this.timeout = null; }
         if (this.reconnectTimeoutId) { clearTimeout(this.reconnectTimeoutId); this.reconnectTimeoutId = null; }
@@ -345,6 +349,71 @@ class GameLogic {
         const planetName = snippets[3];
         
         console.log(`[WS${this.wsNumber}] 353 message received - Planet: ${planetName}`);
+        
+        // Extract bot's own gang name if not already set
+        if (!this.botGangName && this.useridg) {
+            // Parse the 353 message to find bot's gang
+            // Format: "353 1 = PLANET :GANGNAME username userid GANGNAME username userid ..."
+            // Or: "353 1 = PLANET :- username userid ..." (no gang)
+            
+            console.log(`[WS${this.wsNumber}] 🔍 Detecting bot gang - Bot ID: ${this.useridg}`);
+            console.log(`[WS${this.wsNumber}] 🔍 353 message: ${text.substring(0, 300)}...`);
+            
+            // Find bot's userid in the message
+            const botIdIndex = text.indexOf(this.useridg);
+            
+            if (botIdIndex !== -1) {
+                console.log(`[WS${this.wsNumber}] 🔍 Bot found at position ${botIdIndex}`);
+                
+                // Get text before bot's userid
+                const textBeforeBot = text.substring(0, botIdIndex);
+                console.log(`[WS${this.wsNumber}] 🔍 Text before bot: ...${textBeforeBot.substring(Math.max(0, textBeforeBot.length - 100))}`);
+                
+                // Split by spaces to get tokens
+                const tokens = textBeforeBot.trim().split(/\s+/);
+                console.log(`[WS${this.wsNumber}] 🔍 Last 5 tokens before bot: ${tokens.slice(-5).join(' ')}`);
+                
+                // Work backwards from bot's position
+                // Pattern: ... GANGNAME username userid
+                // We want to find the token before username (which is before userid)
+                
+                // The last token should be the bot's username
+                // The token before that should be the gang name (or ":-" if no gang)
+                
+                if (tokens.length >= 2) {
+                    const botUsername = tokens[tokens.length - 1]; // Last token before userid
+                    const gangOrSeparator = tokens[tokens.length - 2]; // Token before username
+                    
+                    console.log(`[WS${this.wsNumber}] 🔍 Bot username: ${botUsername}`);
+                    console.log(`[WS${this.wsNumber}] 🔍 Gang/Separator: ${gangOrSeparator}`);
+                    
+                    // Check if it's a gang name or separator
+                    if (gangOrSeparator === ':-' || gangOrSeparator === ':') {
+                        // No gang
+                        this.botGangName = "NO_GANG";
+                        console.log(`[WS${this.wsNumber}] 🤖 Bot has no gang (separator: ${gangOrSeparator})`);
+                        this.addLog(this.wsNumber, `🤖 Bot has no gang`);
+                    } else if (gangOrSeparator.match(/^[A-Z_][A-Z0-9_]*$/i)) {
+                        // Looks like a gang name (alphanumeric + underscore)
+                        this.botGangName = gangOrSeparator.toLowerCase();
+                        console.log(`[WS${this.wsNumber}] 🤖 Bot's gang detected: ${this.botGangName}`);
+                        this.addLog(this.wsNumber, `🤖 Bot gang: ${this.botGangName}`);
+                    } else {
+                        // Unclear - might be username or something else
+                        this.botGangName = "NO_GANG";
+                        console.log(`[WS${this.wsNumber}] 🤖 Bot has no gang (unclear token: ${gangOrSeparator})`);
+                        this.addLog(this.wsNumber, `🤖 Bot has no gang`);
+                    }
+                } else {
+                    // Not enough tokens
+                    this.botGangName = "NO_GANG";
+                    console.log(`[WS${this.wsNumber}] 🤖 Bot has no gang (not enough tokens)`);
+                }
+            } else {
+                console.log(`[WS${this.wsNumber}] 🔍 Bot NOT found in 353 message`);
+                // Bot not in message yet - will detect on next 353
+            }
+        }
         
         // Load founder ID from file if planet changed or not loaded yet
         if (planetName && planetName !== this.currentPlanet) {
@@ -531,6 +600,14 @@ class GameLogic {
                 // Process gang blacklist
                 kgangblacklist.forEach((element) => {
                     console.log(`[WS${this.wsNumber}] 353 BAN mode - Checking gang: "${element}"`);
+                    
+                    // Skip if this is bot's own gang
+                    if (this.botGangName && this.botGangName !== "no_gang" && element === this.botGangName) {
+                        console.log(`[WS${this.wsNumber}] 353 BAN mode - Skipping bot's own gang: ${element}`);
+                        this.addLog(this.wsNumber, `🤖 Skipping own gang: ${element}`);
+                        return;
+                    }
+                    
                     if (element && data.includes(element)) {
                         console.log(`[WS${this.wsNumber}] 353 BAN mode - Found gang match: ${element}`);
                         const replace = element + " ";
@@ -711,6 +788,14 @@ class GameLogic {
                     // Process gang blacklist
                     kgangblacklist.forEach((element) => {
                         console.log(`[WS${this.wsNumber}] 353 Kick mode - Checking gang: "${element}"`);
+                        
+                        // Skip if this is bot's own gang
+                        if (this.botGangName && this.botGangName !== "no_gang" && element === this.botGangName) {
+                            console.log(`[WS${this.wsNumber}] 353 Kick mode - Skipping bot's own gang: ${element}`);
+                            this.addLog(this.wsNumber, `🤖 Skipping own gang: ${element}`);
+                            return;
+                        }
+                        
                         if (element && data.includes(element)) {
                             console.log(`[WS${this.wsNumber}] 353 Kick mode - Found gang match: ${element}`);
                             const replace = element + " ";
@@ -777,6 +862,14 @@ class GameLogic {
                     // Process gang blacklist
                     gangblacklist.forEach((element) => {
                         console.log(`[WS${this.wsNumber}] 353 Imprison mode - Checking gang: "${element}"`);
+                        
+                        // Skip if this is bot's own gang
+                        if (this.botGangName && this.botGangName !== "no_gang" && element === this.botGangName) {
+                            console.log(`[WS${this.wsNumber}] 353 Imprison mode - Skipping bot's own gang: ${element}`);
+                            this.addLog(this.wsNumber, `🤖 Skipping own gang: ${element}`);
+                            return;
+                        }
+                        
                         if (element && data.includes(element)) {
                             console.log(`[WS${this.wsNumber}] 353 Imprison mode - Found gang match: ${element}`);
                             const replace = element + " ";
@@ -1157,8 +1250,10 @@ class GameLogic {
             const parts = text.split(" ");
             let username = "";
             let userid = "";
+            let channel = "";
             
             if (parts.length >= 4) {
+                channel = parts[1] ? parts[1].toLowerCase() : "";
                 username = parts[2] ? parts[2].toLowerCase().replace('@', '') : "";
                 userid = parts[3] || "";
             }
@@ -1210,7 +1305,17 @@ class GameLogic {
                     if (!shouldAct) {
                         const kgangblacklist = (this.config.kgangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
                         for (const gang of kgangblacklist) {
-                            if (gang && username.includes(gang)) {
+                            // IMPORTANT: Skip if this gang is bot's own gang
+                            if (this.botGangName && this.botGangName !== "no_gang" && gang === this.botGangName) {
+                                console.log(`[WS${this.wsNumber}] JOIN Kick - Skipping bot's own gang in blacklist: ${gang}`);
+                                this.addLog(this.wsNumber, `🤖 Skipping own gang: ${gang}`);
+                                continue; // Skip to next gang in blacklist
+                            }
+                            
+                            // Check if user belongs to this blacklisted gang
+                            // User's gang is in the channel field
+                            if (gang && channel === gang) {
+                                console.log(`[WS${this.wsNumber}] JOIN Kick - User ${username} belongs to blacklisted gang: ${gang}`);
                                 shouldAct = true;
                                 reason = `kgangblacklist: ${gang}`;
                                 break;
@@ -1231,7 +1336,17 @@ class GameLogic {
                     if (!shouldAct) {
                         const gangblacklist = (this.config.gangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
                         for (const gang of gangblacklist) {
-                            if (gang && username.includes(gang)) {
+                            // IMPORTANT: Skip if this gang is bot's own gang
+                            if (this.botGangName && this.botGangName !== "no_gang" && gang === this.botGangName) {
+                                console.log(`[WS${this.wsNumber}] JOIN Imprison - Skipping bot's own gang in blacklist: ${gang}`);
+                                this.addLog(this.wsNumber, `🤖 Skipping own gang: ${gang}`);
+                                continue; // Skip to next gang in blacklist
+                            }
+                            
+                            // Check if user belongs to this blacklisted gang
+                            // User's gang is in the channel field
+                            if (gang && channel === gang) {
+                                console.log(`[WS${this.wsNumber}] JOIN Imprison - User ${username} belongs to blacklisted gang: ${gang}`);
                                 shouldAct = true;
                                 reason = `gangblacklist: ${gang}`;
                                 break;
