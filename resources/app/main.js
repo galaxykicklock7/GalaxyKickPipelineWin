@@ -232,21 +232,84 @@ apiServer.post('/api/fly', (req, res) => {
 
 apiServer.post('/api/release', (req, res) => {
   let released = 0;
+  let attempted = 0;
+  let errors = [];
+
+  const promises = [];
 
   Object.keys(appState.gameLogic).forEach(key => {
     const logic = appState.gameLogic[key];
-    if (logic && logic.inPrison) {
-      logic.escapeAll().then(success => {
-        if (success) {
-          const wsNum = key.replace('logic', '');
-          addLog(parseInt(wsNum), `✅ Released from prison`);
-        }
-      });
-      released++;
+    const wsNum = parseInt(key.replace('logic', ''));
+    
+    if (!logic) {
+      return;
     }
+    
+    // Check if any recovery codes are configured
+    const hasRC = ['rc1', 'rc2', 'rc3', 'rc4', 'rc5', 'rcl1', 'rcl2', 'rcl3', 'rcl4', 'rcl5']
+      .some(key => logic.config[key] && logic.config[key].trim() !== '');
+    
+    if (!hasRC) {
+      errors.push(`WS${wsNum}: No recovery codes configured`);
+      addLog(wsNum, `⚠️ No recovery codes - cannot escape`);
+      return;
+    }
+    
+    attempted++;
+    addLog(wsNum, `🔓 Attempting prison escape (manual)...`);
+    console.log(`[API] WS${wsNum}: Attempting manual escape (inPrison=${logic.inPrison})`);
+    
+    // Force escape attempt regardless of inPrison flag (manual release)
+    const promise = logic.escapeWithCode(logic.config.rc1 || logic.config.rcl1, 'Manual')
+      .then(success => {
+        if (success) {
+          released++;
+          addLog(wsNum, `✅ Successfully escaped from prison!`);
+          logic.inPrison = false; // Update flag
+          
+          // Rejoin target planet
+          const ws = appState.websockets[`ws${wsNum}`];
+          const targetPlanet = logic.config.planet;
+          if (targetPlanet && ws && ws.readyState === ws.OPEN) {
+            setTimeout(() => {
+              if (ws.readyState === ws.OPEN) {
+                ws.send(`JOIN ${targetPlanet}\r\n`);
+                addLog(wsNum, `🔄 Rejoining ${targetPlanet}`);
+              }
+            }, 3000);
+          }
+          return { wsNum, success: true };
+        } else {
+          addLog(wsNum, `❌ Escape failed - code invalid or not in prison`);
+          return { wsNum, success: false };
+        }
+      })
+      .catch(error => {
+        errors.push(`WS${wsNum}: ${error.message}`);
+        addLog(wsNum, `❌ Escape error: ${error.message}`);
+        return { wsNum, success: false, error: error.message };
+      });
+    
+    promises.push(promise);
   });
 
-  res.json({ success: true, message: `Attempting to release ${released} account(s)` });
+  // Wait for all escape attempts to complete
+  Promise.all(promises).then(results => {
+    console.log(`[API] Release complete: ${released}/${attempted} successful`);
+  });
+
+  const response = {
+    success: attempted > 0,
+    message: `Attempting to release ${attempted} account(s) from prison`,
+    attempted,
+    total: Object.keys(appState.gameLogic).length
+  };
+  
+  if (errors.length > 0) {
+    response.errors = errors;
+  }
+  
+  res.json(response);
 });
 
 // Helper: Connect All

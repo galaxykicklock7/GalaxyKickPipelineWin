@@ -190,74 +190,512 @@ class GameLogic {
 
     handle353Message(ws, snippets, text) {
         const planetName = snippets[3];
+        
+        console.log(`[WS${this.wsNumber}] 353 message received - Planet: ${planetName}`);
+        console.log(`[WS${this.wsNumber}] autorelease config: ${this.config.autorelease}`);
+        this.addLog(this.wsNumber, `📋 353 - Users on ${planetName || 'planet'}`);
+        
         if (planetName) {
             this.currentPlanet = planetName;
             this.inPrison = planetName.slice(0, 6) === "Prison";
+            
+            console.log(`[WS${this.wsNumber}] 353 - Planet: ${planetName}, inPrison: ${this.inPrison}, autorelease: ${this.config.autorelease}`);
+            
+            // If we're in prison and autorelease is enabled, trigger escape
+            if (this.inPrison) {
+                this.addLog(this.wsNumber, `🔴 In Prison: ${planetName}`);
+                
+                if (this.config.autorelease) {
+                    this.addLog(this.wsNumber, `🔓 Prison detected on connect - attempting escape`);
+                    console.log(`[WS${this.wsNumber}] Triggering auto-release...`);
+                    setTimeout(async () => {
+                        console.log(`[WS${this.wsNumber}] Calling escapeAll()...`);
+                        const success = await this.escapeAll();
+                        console.log(`[WS${this.wsNumber}] escapeAll() result: ${success}`);
+                        
+                        // Rejoin target planet after escape
+                        const targetPlanet = this.config.planet;
+                        if (targetPlanet && ws.readyState === ws.OPEN) {
+                            setTimeout(() => {
+                                if (ws.readyState === ws.OPEN) {
+                                    ws.send(`JOIN ${targetPlanet}\r\n`);
+                                    this.addLog(this.wsNumber, `🔄 Rejoining ${targetPlanet}`);
+                                }
+                            }, 3000);
+                        }
+                    }, 1000);
+                } else {
+                    this.addLog(this.wsNumber, `⚠️ Auto-release is disabled`);
+                    console.log(`[WS${this.wsNumber}] Auto-release is disabled (autorelease=${this.config.autorelease})`);
+                }
+            }
         }
 
-        // Check Modes
-        if (this.config.modena) {
+        // Check N/A mode first - applies to ALL connections
+        if (this.config.modena === true) {
             this.handle353BanMode(ws, snippets, text);
-        } else if (this.config.lowsecmode) {
+            return;
+        }
+
+        // Check Low Sec mode
+        if (this.config.lowsecmode) {
             this.handle353LowSec(ws, snippets, text);
-        } else {
-            // Default: Kick Mode checks + Normal Search
+            return;
+        }
+
+        // Check if any kick/imprison mode is enabled
+        const kickModeEnabled = this.config.kickall || this.config.kickbybl || this.config.dadplus;
+        
+        if (kickModeEnabled) {
+            // Only run kick/imprison mode handler
             this.handle353KickMode(ws, snippets, text);
+        } else if (!this.config.kickmode) {
+            // Only run normal attack mode if NOT in kick mode
+            // (kickmode=true with no modes enabled means "do nothing")
             this.handle353Normal(ws, snippets, text);
+        } else {
+            // kickmode=true but no modes enabled - do nothing
+            console.log(`[WS${this.wsNumber}] Kick mode enabled but no action modes selected - doing nothing`);
         }
     }
 
-    // 1. BAN MODE
+    // 1. BAN MODE (N/A Mode)
     handle353BanMode(ws, snippets, text) {
-        if (!this.config.kickall && !this.config.kickbybl && !this.config.dadplus) return;
-        const usersToBan = this._parseTargetList(text, true);
-        if (usersToBan.length > 0) {
-            usersToBan.forEach((user, i) => {
-                setTimeout(() => {
-                    if (ws.readyState === ws.OPEN) {
-                        ws.send(`BAN ${user.userid}\r\n`);
-                        this.addLog(this.wsNumber, `🚫 BAN ${user.username}`);
+        try {
+            const channelName = snippets[3];
+            
+            // Skip prison channels
+            if (channelName && channelName.slice(0, 6) === "Prison") {
+                this.addLog(this.wsNumber, `Skipping prison channel`);
+                return;
+            }
+
+            // ONLY process if at least one mode is enabled
+            if (!this.config.kickall && !this.config.kickbybl && !this.config.dadplus) {
+                return;
+            }
+
+            console.log(`[WS${this.wsNumber}] 353 BAN mode - Processing user list`);
+            console.log(`[WS${this.wsNumber}] 353 BAN mode options - Everyone=${this.config.kickall}, ByBlacklist=${this.config.kickbybl}, Dad+=${this.config.dadplus}`);
+            
+            // Parse all user IDs from 353 message
+            let members = text.split("+").join("");
+            members = members.split("@").join("");
+            members = members.split(":").join("");
+            const membersarr = members.toLowerCase().split(" ");
+            const integers = membersarr.filter(item => !isNaN(item) && item !== "-" && item.length >= 6);
+            
+            const usersToBan = [];
+            
+            // OPTION 1: Check "Everyone" mode - ban all users
+            if (this.config.kickall) {
+                console.log(`[WS${this.wsNumber}] 353 BAN mode - Everyone mode active`);
+                
+                integers.forEach((userid) => {
+                    const idx = membersarr.indexOf(userid);
+                    if (idx > 0) {
+                        const username = membersarr[idx - 1];
+                        
+                        // Skip if username is also numeric
+                        if (!isNaN(username)) return;
+                        
+                        // Skip self and founder
+                        if (userid === this.useridg) {
+                            console.log(`[WS${this.wsNumber}] 353 BAN mode - Skipping self: ${userid}`);
+                        } else if (userid === this.founderUserId) {
+                            console.log(`[WS${this.wsNumber}] 353 BAN mode - Skipping founder: ${userid}`);
+                        } else if (!usersToBan.find(u => u.userid === userid)) {
+                            usersToBan.push({ userid, username, reason: 'everyone' });
+                            console.log(`[WS${this.wsNumber}] 353 BAN mode - Found user to ban (everyone): ${username} (${userid})`);
+                        }
                     }
-                }, i * 100);
-            });
+                });
+            }
+            
+            // OPTION 2: Check "By Blacklist" mode (only if Everyone is not enabled)
+            else if (this.config.kickbybl) {
+                const data = text.replaceAll("+", "").toLowerCase();
+                const kblacklist = (this.config.kblacklist || "").toLowerCase().split("\n").filter(k => k.trim());
+                const kgangblacklist = (this.config.kgangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+                
+                console.log(`[WS${this.wsNumber}] 353 BAN mode - Kick Blacklist Users: [${kblacklist.join(', ')}]`);
+                console.log(`[WS${this.wsNumber}] 353 BAN mode - Kick Blacklist Clans: [${kgangblacklist.join(', ')}]`);
+                
+                // Process username blacklist
+                kblacklist.forEach((element) => {
+                    if (element && data.includes(element)) {
+                        const replace = element + " ";
+                        const replaced = data.replaceAll(replace, "*");
+                        const arr = replaced.split("*");
+                        arr.shift();
+                        
+                        if (arr[0]) {
+                            const userid = arr[0].split(" ")[0];
+                            if (userid === this.useridg) {
+                                console.log(`[WS${this.wsNumber}] 353 BAN mode - Skipping self: ${userid}`);
+                            } else if (userid === this.founderUserId) {
+                                console.log(`[WS${this.wsNumber}] 353 BAN mode - Skipping founder: ${userid}`);
+                                this.addLog(this.wsNumber, `👑 Skipping BAN for planet owner: ${element}`);
+                            } else if (userid && !usersToBan.find(u => u.userid === userid)) {
+                                usersToBan.push({ userid, username: element, reason: `kblacklist: ${element}` });
+                                console.log(`[WS${this.wsNumber}] 353 BAN mode - Found user to ban: ${element} (${userid})`);
+                            }
+                        }
+                    }
+                });
+                
+                // Process gang blacklist
+                kgangblacklist.forEach((element) => {
+                    if (element && data.includes(element)) {
+                        const replace = element + " ";
+                        const replaced = data.replaceAll(replace, "*");
+                        const arr = replaced.split("*");
+                        arr.shift();
+                        
+                        for (let i = 0; i < arr.length; i++) {
+                            const value = arr[i];
+                            const parts = value.split(" ");
+                            const userid = parts[1];
+                            const username = parts[0];
+                            
+                            if (userid === this.useridg) {
+                                console.log(`[WS${this.wsNumber}] 353 BAN mode - Skipping self: ${userid}`);
+                            } else if (userid === this.founderUserId) {
+                                console.log(`[WS${this.wsNumber}] 353 BAN mode - Skipping founder: ${userid}`);
+                                this.addLog(this.wsNumber, `👑 Skipping BAN for planet owner in gang: ${username}`);
+                            } else if (username && userid && !usersToBan.find(u => u.userid === userid)) {
+                                usersToBan.push({ userid, username, reason: `kgangblacklist: ${element}` });
+                                console.log(`[WS${this.wsNumber}] 353 BAN mode - Found gang member to ban: ${username} (${userid})`);
+                            }
+                        }
+                    }
+                });
+            }
+            
+            // OPTION 3: Dad+ mode - Request user info for all users to check for aura
+            if (this.config.dadplus) {
+                console.log(`[WS${this.wsNumber}] Dad+ mode - Requesting info for ${integers.length} users`);
+                this.addLog(this.wsNumber, `🔍 Dad+ checking ${integers.length} users for aura`);
+                
+                integers.forEach((userid, index) => {
+                    if (userid === this.useridg || userid === this.founderUserId) return;
+                    
+                    setTimeout(() => {
+                        if (ws.readyState === ws.OPEN) {
+                            ws.send(`WHOIS ${userid}\r\n`);
+                            console.log(`[WS${this.wsNumber}] Dad+ mode - Sent WHOIS for ${userid}`);
+                        }
+                    }, index * 50);
+                });
+            }
+            
+            // Ban all matched users
+            if (usersToBan.length > 0) {
+                console.log(`[WS${this.wsNumber}] 353 BAN mode - Banning ${usersToBan.length} user(s)`);
+                this.addLog(this.wsNumber, `🚫 Found ${usersToBan.length} user(s) to ban`);
+                
+                usersToBan.forEach((user, index) => {
+                    setTimeout(() => {
+                        if (ws.readyState === ws.OPEN) {
+                            ws.send(`BAN ${user.userid}\r\n`);
+                            this.addLog(this.wsNumber, `🚫 Banning ${user.username} (${user.userid}) - ${user.reason}`);
+                            console.log(`[WS${this.wsNumber}] 353 BAN mode - Sent BAN command for ${user.userid}`);
+                        }
+                    }, index * 100);
+                });
+            } else {
+                console.log(`[WS${this.wsNumber}] 353 BAN mode - No users to ban`);
+                this.addLog(this.wsNumber, `✅ No users in blacklist found on planet`);
+            }
+            
+        } catch (error) {
+            console.error(`[WS${this.wsNumber}] Error in handle353BanMode:`, error);
         }
     }
 
     // 2. KICK / IMPRISON MODE
     handle353KickMode(ws, snippets, text) {
-        if (!this.config.kickall && !this.config.kickbybl && !this.config.dadplus) return;
-        const isKick = this.config.kickmode;
-        const usersToAct = this._parseTargetList(text, isKick);
+        try {
+            const channelName = snippets[3];
+            
+            // Skip prison channels
+            if (channelName && channelName.slice(0, 6) === "Prison") {
+                this.addLog(this.wsNumber, `Skipping prison channel`);
+                return;
+            }
 
-        if (usersToAct.length > 0) {
-            const timing = this.getTiming("attack");
-            this.addLog(this.wsNumber, `${isKick ? '👢' : '⚔️'} Found ${usersToAct.length} targets`);
+            // ONLY process if at least one mode is enabled
+            if (!this.config.kickall && !this.config.kickbybl && !this.config.dadplus) {
+                return;
+            }
 
-            this.timeout = setTimeout(() => {
-                usersToAct.forEach((user, i) => {
-                    const innerTimeout = setTimeout(() => {
-                        if (ws.readyState === ws.OPEN) {
-                            if (isKick) {
-                                ws.send(`KICK ${user.userid}\r\n`);
-                                this.addLog(this.wsNumber, `👢 KICK ${user.username}`);
-                            } else {
-                                ws.send(`ACTION 3 ${user.userid}\r\n`);
-                                this.markTargetAttacked(user.userid);
-                                this.addLog(this.wsNumber, `⚔️ IMPRISON ${user.username}`);
-                            }
-
-                            if (i === usersToAct.length - 1) {
-                                if (this.config.exitting || this.config.sleeping) {
-                                    ws.send("QUIT :ds\r\n");
-                                    this.addLog(this.wsNumber, `🚪 QUIT`);
-                                    if (this.config.sleeping && this.config.connected) this.OffSleep(ws);
+            // Determine if we're in Kick or Imprison mode
+            const isKickMode = this.config.kickmode === true;
+            const actionType = isKickMode ? "Kick" : "Imprison";
+            
+            console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - Processing user list`);
+            console.log(`[WS${this.wsNumber}] 353 ${actionType} mode options - Everyone=${this.config.kickall}, ByBlacklist=${this.config.kickbybl}, Dad+=${this.config.dadplus}`);
+            
+            // Parse all user IDs from 353 message
+            let members = text.split("+").join("");
+            members = members.split("@").join("");
+            members = members.split(":").join("");
+            const membersarr = members.toLowerCase().split(" ");
+            const integers = membersarr.filter(item => !isNaN(item) && item !== "-" && item.length >= 6);
+            
+            const usersToAct = [];
+            
+            // OPTION 1: Check "Everyone" mode - kick/imprison all users
+            if (this.config.kickall) {
+                console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - Everyone mode active`);
+                
+                // Parse raw text to check for @ prefix (supervisor status)
+                // Keep @ symbols to detect supervisors
+                const rawMembers = text.split("+").join("").split(":").join("");
+                const rawMembersArr = rawMembers.split(" ");
+                
+                integers.forEach((userid) => {
+                    const idx = membersarr.indexOf(userid);
+                    if (idx > 0) {
+                        const username = membersarr[idx - 1];
+                        
+                        // Skip if username is also numeric (means it's not a username)
+                        if (!isNaN(username)) return;
+                        
+                        // Check if user has supervisor status (@ prefix in raw text)
+                        // The raw username should be at the same index in rawMembersArr
+                        const rawUsername = rawMembersArr[idx - 1];
+                        const isSupervisor = rawUsername && rawUsername.startsWith('@');
+                        
+                        // Skip self, founder, and supervisors
+                        if (userid === this.useridg) {
+                            console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - Skipping self: ${userid}`);
+                        } else if (userid === this.founderUserId) {
+                            console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - Skipping founder: ${userid}`);
+                        } else if (isSupervisor) {
+                            console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - Skipping supervisor: ${username} (${userid})`);
+                            this.addLog(this.wsNumber, `👮 Skipping supervisor: ${username}`);
+                        } else if (!usersToAct.find(u => u.userid === userid)) {
+                            usersToAct.push({ userid, username, reason: 'everyone' });
+                            console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - Found user (everyone): ${username} (${userid})`);
+                        }
+                    }
+                });
+            }
+            
+            // OPTION 2: Check "By Blacklist" mode (only if Everyone is not enabled)
+            else if (this.config.kickbybl) {
+                const data = text.replaceAll("+", "").toLowerCase();
+                
+                if (isKickMode) {
+                    // KICK MODE: Use kblacklist and kgangblacklist
+                    const kblacklist = (this.config.kblacklist || "").toLowerCase().split("\n").filter(k => k.trim());
+                    const kgangblacklist = (this.config.kgangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+                    
+                    console.log(`[WS${this.wsNumber}] 353 Kick mode - Kick Blacklist Users: [${kblacklist.join(', ')}]`);
+                    console.log(`[WS${this.wsNumber}] 353 Kick mode - Kick Blacklist Clans: [${kgangblacklist.join(', ')}]`);
+                    
+                    // Process username blacklist
+                    kblacklist.forEach((element) => {
+                        if (element && data.includes(element)) {
+                            const replace = element + " ";
+                            const replaced = data.replaceAll(replace, "*");
+                            const arr = replaced.split("*");
+                            arr.shift();
+                            
+                            if (arr[0]) {
+                                const userid = arr[0].split(" ")[0];
+                                // Skip self and founder
+                                if (userid === this.useridg) {
+                                    console.log(`[WS${this.wsNumber}] 353 Kick mode - Skipping self: ${userid}`);
+                                } else if (userid === this.founderUserId) {
+                                    console.log(`[WS${this.wsNumber}] 353 Kick mode - Skipping founder: ${userid}`);
+                                    this.addLog(this.wsNumber, `👑 Skipping kick for planet owner: ${element}`);
+                                } else if (userid && !usersToAct.find(u => u.userid === userid)) {
+                                    usersToAct.push({ userid, username: element, reason: `kblacklist: ${element}` });
+                                    console.log(`[WS${this.wsNumber}] 353 Kick mode - Found user to kick: ${element} (${userid})`);
                                 }
                             }
                         }
-                    }, i * 100);
-                    this.innerTimeouts.push(innerTimeout);
+                    });
+                    
+                    // Process gang blacklist
+                    kgangblacklist.forEach((element) => {
+                        if (element && data.includes(element)) {
+                            const replace = element + " ";
+                            const replaced = data.replaceAll(replace, "*");
+                            const arr = replaced.split("*");
+                            arr.shift();
+                            
+                            for (let i = 0; i < arr.length; i++) {
+                                const value = arr[i];
+                                const parts = value.split(" ");
+                                const userid = parts[1];
+                                const username = parts[0];
+                                
+                                // Skip self and founder
+                                if (userid === this.useridg) {
+                                    console.log(`[WS${this.wsNumber}] 353 Kick mode - Skipping self: ${userid}`);
+                                } else if (userid === this.founderUserId) {
+                                    console.log(`[WS${this.wsNumber}] 353 Kick mode - Skipping founder: ${userid}`);
+                                    this.addLog(this.wsNumber, `👑 Skipping kick for planet owner in gang: ${username}`);
+                                } else if (username && userid && !usersToAct.find(u => u.userid === userid)) {
+                                    usersToAct.push({ userid, username, reason: `kgangblacklist: ${element}` });
+                                    console.log(`[WS${this.wsNumber}] 353 Kick mode - Found gang member to kick: ${username} (${userid})`);
+                                }
+                            }
+                        }
+                    });
+                } else {
+                    // IMPRISON MODE: Use blacklist and gangblacklist
+                    const blacklist = (this.config.blacklist || "").toLowerCase().split("\n").filter(b => b.trim());
+                    const gangblacklist = (this.config.gangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+                    
+                    console.log(`[WS${this.wsNumber}] 353 Imprison mode - Blacklist Users: [${blacklist.join(', ')}]`);
+                    console.log(`[WS${this.wsNumber}] 353 Imprison mode - Blacklist Clans: [${gangblacklist.join(', ')}]`);
+                    
+                    // Process username blacklist
+                    blacklist.forEach((element) => {
+                        if (element && data.includes(element)) {
+                            const replace = element + " ";
+                            const replaced = data.replaceAll(replace, "*");
+                            const arr = replaced.split("*");
+                            arr.shift();
+                            
+                            if (arr[0]) {
+                                const userid = arr[0].split(" ")[0];
+                                // Skip self and founder
+                                if (userid === this.useridg) {
+                                    console.log(`[WS${this.wsNumber}] 353 Imprison mode - Skipping self: ${userid}`);
+                                } else if (userid === this.founderUserId) {
+                                    console.log(`[WS${this.wsNumber}] 353 Imprison mode - Skipping founder: ${userid}`);
+                                    this.addLog(this.wsNumber, `👑 Skipping imprison for planet owner: ${element}`);
+                                } else if (userid && !usersToAct.find(u => u.userid === userid)) {
+                                    usersToAct.push({ userid, username: element, reason: `blacklist: ${element}` });
+                                    console.log(`[WS${this.wsNumber}] 353 Imprison mode - Found user to imprison: ${element} (${userid})`);
+                                }
+                            }
+                        }
+                    });
+                    
+                    // Process gang blacklist
+                    gangblacklist.forEach((element) => {
+                        if (element && data.includes(element)) {
+                            const replace = element + " ";
+                            const replaced = data.replaceAll(replace, "*");
+                            const arr = replaced.split("*");
+                            arr.shift();
+                            
+                            for (let i = 0; i < arr.length; i++) {
+                                const value = arr[i];
+                                const parts = value.split(" ");
+                                const userid = parts[1];
+                                const username = parts[0];
+                                
+                                // Skip self and founder
+                                if (userid === this.useridg) {
+                                    console.log(`[WS${this.wsNumber}] 353 Imprison mode - Skipping self: ${userid}`);
+                                } else if (userid === this.founderUserId) {
+                                    console.log(`[WS${this.wsNumber}] 353 Imprison mode - Skipping founder: ${userid}`);
+                                    this.addLog(this.wsNumber, `👑 Skipping imprison for planet owner in gang: ${username}`);
+                                } else if (username && userid && !usersToAct.find(u => u.userid === userid)) {
+                                    usersToAct.push({ userid, username, reason: `gangblacklist: ${element}` });
+                                    console.log(`[WS${this.wsNumber}] 353 Imprison mode - Found gang member to imprison: ${username} (${userid})`);
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+            
+            // OPTION 3: Dad+ mode - Request user info for all users to check for aura (independent of other modes)
+            if (this.config.dadplus) {
+                console.log(`[WS${this.wsNumber}] Dad+ mode - Requesting info for ${integers.length} users`);
+                this.addLog(this.wsNumber, `🔍 Dad+ checking ${integers.length} users for aura`);
+                
+                integers.forEach((userid, index) => {
+                    // Skip self and founder
+                    if (userid === this.useridg || userid === this.founderUserId) return;
+                    
+                    setTimeout(() => {
+                        if (ws.readyState === ws.OPEN) {
+                            ws.send(`WHOIS ${userid}\r\n`);
+                            console.log(`[WS${this.wsNumber}] Dad+ mode - Sent WHOIS for ${userid}`);
+                        }
+                    }, index * 50); // Stagger requests by 50ms
                 });
-            }, timing);
+            }
+            
+            // Execute actions for matched users
+            if (usersToAct.length > 0) {
+                // KICK mode: No timing delay (immediate)
+                // IMPRISON mode: Use attack timing
+                const timing = isKickMode ? 0 : this.getTiming("attack");
+                const timingLabel = isKickMode ? "Immediate" : this.getTimingLabel("attack");
+                
+                console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - Acting on ${usersToAct.length} user(s)`);
+                this.addLog(this.wsNumber, `${isKickMode ? '👢' : '⚔️'} Found ${usersToAct.length} user(s) to ${actionType.toLowerCase()}`);
+                
+                if (isKickMode) {
+                    this.addLog(this.wsNumber, `⚡ Kicking immediately (no delay)`);
+                } else {
+                    this.addLog(this.wsNumber, `⚡ ${timingLabel} in ${timing}ms`);
+                }
+                
+                // Wait for timing before sending first action (0ms for kick mode)
+                this.timeout = setTimeout(() => {
+                    usersToAct.forEach((user, index) => {
+                        const innerTimeout = setTimeout(() => {
+                            if (ws.readyState === ws.OPEN) {
+                                if (isKickMode) {
+                                    ws.send(`KICK ${user.userid}\r\n`);
+                                    this.addLog(this.wsNumber, `👢 Kicking ${user.username} (${user.userid}) - ${user.reason}`);
+                                    console.log(`[WS${this.wsNumber}] 353 Kick mode - Sent KICK command for ${user.userid}`);
+                                } else {
+                                    ws.send(`ACTION 3 ${user.userid}\r\n`);
+                                    this.markTargetAttacked(user.userid);
+                                    this.addLog(this.wsNumber, `⚔️ Imprisoning ${user.username} (${user.userid}) - ${user.reason}`);
+                                    console.log(`[WS${this.wsNumber}] 353 Imprison mode - Sent ACTION 3 command for ${user.userid}`);
+                                }
+                                
+                                // QUIT only in Imprison mode (not in Kick mode)
+                                // Kick mode: Stay connected to kick more users
+                                // Imprison mode: Quit because you get imprisoned
+                                if (index === usersToAct.length - 1 && !isKickMode) {
+                                    if (this.config.exitting || this.config.sleeping) {
+                                        ws.send("QUIT :ds\r\n");
+                                        this.addLog(this.wsNumber, `🚪 QUIT after ${actionType.toLowerCase()}`);
+                                        
+                                        // Trigger auto-reconnect if sleeping mode is enabled
+                                        console.log(`[WS${this.wsNumber}] 353 Imprison - Checking OffSleep: sleeping=${this.config.sleeping}, connected=${this.config.connected}`);
+                                        this.addLog(this.wsNumber, `🔍 Check: sleeping=${this.config.sleeping}, connected=${this.config.connected}`);
+                                        if (this.config.sleeping && this.config.connected) {
+                                            console.log(`[WS${this.wsNumber}] ✅ Calling OffSleep from 353 handler`);
+                                            this.addLog(this.wsNumber, `✅ Calling OffSleep (353 handler)`);
+                                            this.OffSleep(ws);
+                                        } else {
+                                            console.log(`[WS${this.wsNumber}] ❌ Skipping OffSleep (sleeping=${this.config.sleeping}, connected=${this.config.connected})`);
+                                            this.addLog(this.wsNumber, `❌ Skipping OffSleep (sleeping=${this.config.sleeping}, connected=${this.config.connected})`);
+                                        }
+                                    }
+                                } else if (index === usersToAct.length - 1 && isKickMode) {
+                                    // Kick mode: Stay connected, don't quit
+                                    console.log(`[WS${this.wsNumber}] Kick mode - Staying connected to kick more users`);
+                                    this.addLog(this.wsNumber, `✅ Staying connected (Kick mode)`);
+                                }
+                            }
+                        }, index * 100); // Stagger actions by 100ms to avoid flooding
+                        
+                        this.innerTimeouts.push(innerTimeout);
+                    });
+                }, timing);
+            } else {
+                console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - No users to ${actionType.toLowerCase()}`);
+                this.addLog(this.wsNumber, `✅ No users in blacklist found on planet`);
+            }
+            
+        } catch (error) {
+            console.error(`[WS${this.wsNumber}] Error in handle353KickMode:`, error);
         }
     }
 
@@ -310,71 +748,342 @@ class GameLogic {
         }
     }
 
-    // 4. NORMAL ATTACK (Populate Pool)
+    // 4. NORMAL ATTACK (Populate Pool + Smart Mode)
     handle353Normal(ws, snippets, text) {
-        if (snippets[3] && snippets[3].slice(0, 6) === "Prison") return;
-        const data = text.replaceAll("+", "").toLowerCase();
-        const blacklist = (this.config.blacklist || "").toLowerCase().split("\n").filter(b => b.trim());
-        const gangblacklist = (this.config.gangblacklist || "").toLowerCase().split("\n").filter(b => b.trim());
+        try {
+            if (snippets[3] && snippets[3].slice(0, 6) === "Prison") return;
+            
+            const data = text.replaceAll("+", "").toLowerCase();
+            const blacklist = (this.config.blacklist || "").toLowerCase().split("\n").filter(b => b.trim());
+            const gangblacklist = (this.config.gangblacklist || "").toLowerCase().split("\n").filter(b => b.trim());
 
-        blacklist.forEach(element => {
-            if (element && data.includes(element)) {
-                const replace = element + " ";
-                const replaced = data.replaceAll(replace, "*");
-                const arr = replaced.split("*");
-                arr.shift();
-                if (arr[0]) {
-                    const uid = arr[0].split(" ")[0];
-                    if (uid && uid !== this.founderUserId && !this.targetids.includes(uid)) {
-                        this.targetids.push(uid);
-                        this.targetnames.push(element);
-                        this.attackids.push(uid);
-                        this.attacknames.push(element);
-                        this.addLog(this.wsNumber, `Target: ${element}`);
+            const timing = this.getTiming("attack");
+            const timingLabel = this.getTimingLabel("attack");
+
+            // Process username blacklist
+            blacklist.forEach(element => {
+                if (element && data.includes(element)) {
+                    const replace = element + " ";
+                    const replaced = data.replaceAll(replace, "*");
+                    const arr = replaced.split("*");
+                    arr.shift();
+                    if (arr[0]) {
+                        const uid = arr[0].split(" ")[0];
+                        // Skip founder
+                        if (uid === this.founderUserId) {
+                            this.addLog(this.wsNumber, `👑 Skipping planet owner: ${element}`);
+                            console.log(`[WS${this.wsNumber}] Founder ${uid} skipped - not adding to attack list`);
+                        } else if (uid && !this.targetids.includes(uid)) {
+                            this.targetids.push(uid);
+                            this.targetnames.push(element);
+                            this.attackids.push(uid);
+                            this.attacknames.push(element);
+                            this.addLog(this.wsNumber, `Found blacklisted: ${element} (${uid})`);
+                        }
                     }
                 }
-            }
-        });
+            });
 
-        gangblacklist.forEach(element => {
-            if (element && data.includes(element)) {
-                const replace = element + " ";
-                const replaced = data.replaceAll(replace, "*");
-                const arr = replaced.split("*");
-                arr.shift();
-                for (let i = 0; i < arr.length; i++) {
-                    const value = arr[i];
-                    const parts = value.split(" ");
-                    const uid = parts[1];
-                    const name = parts[0];
-                    if (uid && uid !== this.founderUserId && !this.targetids.includes(uid)) {
-                        this.targetids.push(uid);
-                        this.targetnames.push(name);
-                        this.attackids.push(uid);
-                        this.attacknames.push(name);
-                        this.addLog(this.wsNumber, `Gang Target: ${name}`);
+            // Process gang blacklist
+            gangblacklist.forEach(element => {
+                if (element && data.includes(element)) {
+                    const replace = element + " ";
+                    const replaced = data.replaceAll(replace, "*");
+                    const arr = replaced.split("*");
+                    arr.shift();
+                    for (let i = 0; i < arr.length; i++) {
+                        const value = arr[i];
+                        const parts = value.split(" ");
+                        const uid = parts[1];
+                        const name = parts[0];
+                        // Skip founder
+                        if (uid === this.founderUserId) {
+                            this.addLog(this.wsNumber, `👑 Skipping planet owner in gang: ${name}`);
+                            continue;
+                        }
+                        if (name && uid && !this.targetids.includes(uid)) {
+                            this.targetids.push(uid);
+                            this.targetnames.push(name);
+                            this.attackids.push(uid);
+                            this.attacknames.push(name);
+                            this.addLog(this.wsNumber, `Found gang member: ${name} (${uid})`);
+                        }
                     }
                 }
-            }
-        });
+            });
 
-        if (!this.userFound && this.targetids.length > 0) {
-            this.startAttack(ws);
+            // Dad+ mode - Request user info for all users to check for aura
+            if (this.config.dadplus) {
+                let members = text.split("+").join("");
+                members = members.split("@").join("");
+                members = members.split(":").join("");
+                const membersarr = members.toLowerCase().split(" ");
+                const integers = membersarr.filter(item => !isNaN(item) && item !== "-" && item.length >= 6);
+                
+                console.log(`[WS${this.wsNumber}] Dad+ mode - Requesting info for ${integers.length} users`);
+                this.addLog(this.wsNumber, `🔍 Dad+ checking ${integers.length} users for aura`);
+                
+                integers.forEach((userid, index) => {
+                    if (userid === this.useridg || userid === this.founderUserId) return;
+                    
+                    setTimeout(() => {
+                        if (ws.readyState === ws.OPEN) {
+                            ws.send(`WHOIS ${userid}\r\n`);
+                            console.log(`[WS${this.wsNumber}] Dad+ mode - Sent WHOIS for ${userid}`);
+                        }
+                    }, index * 50);
+                });
+            }
+
+            // Attack first target if available
+            if (!this.userFound && this.targetids.length > 0) {
+                let target;
+                
+                // Use smart mode if enabled
+                if (this.config.smart) {
+                    target = this.selectSmartTarget();
+                } else {
+                    // Random selection (original behavior)
+                    const rand = Math.floor(Math.random() * this.targetids.length);
+                    target = { id: this.targetids[rand], name: this.targetnames[rand] };
+                }
+                
+                if (!target) return;
+                
+                const userid = target.id;
+                const targetname = target.name;
+                
+                this.userFound = true;
+                this.useridattack = userid;
+                this.useridtarget = userid;
+                this.status = "attack";
+                
+                this.addLog(this.wsNumber, `⚡ ${timingLabel} ${targetname} in ${timing}ms`);
+
+                this.timeout = setTimeout(() => {
+                    // Check if target is founder before attacking
+                    if (this.useridattack === this.founderUserId) {
+                        this.addLog(this.wsNumber, `👑 Cancelled attack - target is planet owner`);
+                        console.log(`[WS${this.wsNumber}] Attack cancelled - target ${this.useridattack} is founder`);
+                        this.userFound = false;
+                        return;
+                    }
+                    
+                    if (ws.readyState === ws.OPEN) {
+                        ws.send(`ACTION 3 ${this.useridattack}\r\n`);
+                        this.markTargetAttacked(this.useridattack);
+                        this.addLog(this.wsNumber, `⚔️ Attacked ${targetname}!`);
+                        
+                        // Check if sleeping mode enabled (triggers OffSleep for auto-reconnect)
+                        if (this.config.sleeping && this.config.connected) {
+                            ws.send("QUIT :ds\r\n");
+                            this.addLog(this.wsNumber, `🚪 QUIT`);
+                            return this.OffSleep(ws);
+                        }
+                        
+                        if (this.config.autorelease || this.config.exitting) {
+                            ws.send("QUIT :ds\r\n");
+                            this.addLog(this.wsNumber, `🚪 QUIT after attack`);
+                        }
+                    }
+                }, timing);
+            }
+        } catch (error) {
+            console.error(`[WS${this.wsNumber}] Error in handle353Normal:`, error);
         }
     }
 
     // ==================== JOIN HANDLERS ====================
 
     handleJoinMessage(ws, snippets, text) {
-        if (this.config.modena) {
+        console.log(`[WS${this.wsNumber}] JOIN handler - modena=${this.config.modena}, kickmode=${this.config.kickmode}, lowsecmode=${this.config.lowsecmode}`);
+        
+        // Check N/A mode first - applies to ALL connections
+        if (this.config.modena === true) {
+            console.log(`[WS${this.wsNumber}] Using BAN mode (N/A selected)`);
             this.handleJoinBanMode(ws, snippets, text);
-        } else if (this.config.lowsecmode) {
+            return;
+        }
+        
+        // Check Low Sec mode
+        if (this.config.lowsecmode) {
+            console.log(`[WS${this.wsNumber}] Using Low Sec mode`);
             this.handleJoinLowSec(ws, snippets, text);
-        } else if (this.config.defense) {
+            return;
+        }
+        
+        // Check if any kick/imprison mode is enabled
+        const kickModeEnabled = this.config.kickall || this.config.kickbybl || this.config.dadplus;
+        
+        if (kickModeEnabled) {
+            // Kick/Imprison modes handle JOIN messages via handleJoinKickMode
+            console.log(`[WS${this.wsNumber}] Using Kick/Imprison mode for JOIN`);
+            this.handleJoinKickMode(ws, snippets, text);
+            return;
+        }
+        
+        // If kickmode=true but no modes enabled, do nothing
+        if (this.config.kickmode) {
+            console.log(`[WS${this.wsNumber}] Kick mode enabled but no action modes selected - doing nothing`);
+            return;
+        }
+        
+        // Default modes (only when NO kick/imprison modes are active AND kickmode=false)
+        if (this.config.defense) {
             this.handleJoinDefenseMode(ws, snippets, text);
         } else {
             this.handleJoinAttackMode(ws, snippets, text);
             this.handleJoinTargetTracking(ws, snippets, text);
+        }
+    }
+
+    handleJoinKickMode(ws, snippets, text) {
+        try {
+            // Parse JOIN message format: "JOIN <channel> <username> <userid> ..."
+            const parts = text.split(" ");
+            let rawUsername = "";
+            let username = "";
+            let userid = "";
+            
+            if (parts.length >= 4) {
+                rawUsername = parts[2] || "";
+                username = rawUsername.toLowerCase().replace('@', '');
+                userid = parts[3] || "";
+            }
+            
+            if (!userid || !username) return;
+            
+            // Skip self
+            if (userid === this.useridg) return;
+            
+            // Skip planet founder
+            if (userid === this.founderUserId) {
+                console.log(`[WS${this.wsNumber}] Skipping action for planet founder ${userid}`);
+                return;
+            }
+            
+            // Check if user is a supervisor (@ prefix)
+            const isSupervisor = rawUsername.startsWith('@');
+            if (isSupervisor) {
+                console.log(`[WS${this.wsNumber}] JOIN - Skipping supervisor: ${username} (${userid})`);
+                this.addLog(this.wsNumber, `👮 Skipping supervisor: ${username}`);
+                return;
+            }
+            
+            // Determine if we're in Kick or Imprison mode
+            const isKickMode = this.config.kickmode === true;
+            const actionType = isKickMode ? "Kick" : "Imprison";
+            
+            let shouldAct = false;
+            let reason = "";
+            
+            // Check "Everyone" mode - kick/imprison everyone
+            if (this.config.kickall) {
+                shouldAct = true;
+                reason = "everyone";
+            }
+            
+            // Dad+ mode - request user info to check for aura
+            if (this.config.dadplus && !shouldAct) {
+                console.log(`[WS${this.wsNumber}] Dad+ mode - Requesting user info for ${userid}`);
+                ws.send(`WHOIS ${userid}\r\n`);
+            }
+            
+            // Check "By Blacklist" mode
+            if (!shouldAct && this.config.kickbybl) {
+                if (isKickMode) {
+                    // KICK MODE: Use kblacklist and kgangblacklist
+                    const kblacklist = (this.config.kblacklist || "").toLowerCase().split("\n").filter(k => k.trim());
+                    for (const blocked of kblacklist) {
+                        if (blocked && username.includes(blocked)) {
+                            shouldAct = true;
+                            reason = `kblacklist: ${blocked}`;
+                            break;
+                        }
+                    }
+                    
+                    if (!shouldAct) {
+                        const kgangblacklist = (this.config.kgangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+                        for (const gang of kgangblacklist) {
+                            if (gang && username.includes(gang)) {
+                                shouldAct = true;
+                                reason = `kgangblacklist: ${gang}`;
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    // IMPRISON MODE: Use blacklist and gangblacklist
+                    const blacklist = (this.config.blacklist || "").toLowerCase().split("\n").filter(b => b.trim());
+                    for (const blocked of blacklist) {
+                        if (blocked && username.includes(blocked)) {
+                            shouldAct = true;
+                            reason = `blacklist: ${blocked}`;
+                            break;
+                        }
+                    }
+                    
+                    if (!shouldAct) {
+                        const gangblacklist = (this.config.gangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+                        for (const gang of gangblacklist) {
+                            if (gang && username.includes(gang)) {
+                                shouldAct = true;
+                                reason = `gangblacklist: ${gang}`;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Execute action if conditions met
+            if (shouldAct) {
+                // KICK mode: No timing delay (immediate)
+                // IMPRISON mode: Use attack timing
+                const timing = isKickMode ? 0 : this.getTiming("attack");
+                const timingLabel = isKickMode ? "Immediate" : this.getTimingLabel("attack");
+                
+                if (isKickMode) {
+                    this.addLog(this.wsNumber, `⚡ Kicking ${username} immediately`);
+                } else {
+                    this.addLog(this.wsNumber, `⚡ ${timingLabel} ${username} in ${timing}ms`);
+                }
+                
+                this.timeout = setTimeout(() => {
+                    if (ws.readyState === ws.OPEN) {
+                        if (isKickMode) {
+                            this.addLog(this.wsNumber, `👢 Kicking ${username} (${userid}) - Reason: ${reason}`);
+                            ws.send(`KICK ${userid}\r\n`);
+                            console.log(`[WS${this.wsNumber}] JOIN Kick mode - Sent KICK command for ${userid}`);
+                        } else {
+                            this.addLog(this.wsNumber, `⚔️ Imprisoning ${username} (${userid}) - Reason: ${reason}`);
+                            ws.send(`ACTION 3 ${userid}\r\n`);
+                            this.markTargetAttacked(userid);
+                            console.log(`[WS${this.wsNumber}] JOIN Imprison mode - Sent ACTION 3 command for ${userid}`);
+                        }
+                        
+                        // QUIT only in Imprison mode (not in Kick mode)
+                        // Kick mode: Stay connected to kick more users
+                        // Imprison mode: Quit because you get imprisoned
+                        if (!isKickMode && (this.config.exitting || this.config.sleeping)) {
+                            ws.send("QUIT :ds\r\n");
+                            this.addLog(this.wsNumber, `🚪 QUIT after ${actionType.toLowerCase()}`);
+                            
+                            if (this.config.sleeping && this.config.connected) {
+                                console.log(`[WS${this.wsNumber}] ✅ Calling OffSleep from JOIN handler`);
+                                this.OffSleep(ws);
+                            }
+                        } else if (isKickMode) {
+                            // Kick mode: Stay connected, don't quit
+                            console.log(`[WS${this.wsNumber}] Kick mode - Staying connected to kick more users`);
+                        }
+                    }
+                    this.timeout = null;
+                }, timing);
+            }
+            
+        } catch (error) {
+            console.error(`[WS${this.wsNumber}] Error in handleJoinKickMode:`, error);
         }
     }
 
@@ -410,22 +1119,95 @@ class GameLogic {
     }
 
     handleJoinBanMode(ws, snippets, text) {
-        if (!this.config.kickall && !this.config.kickbybl && !this.config.dadplus) return;
-        const username = snippets[2] ? snippets[2].toLowerCase() : "";
-        const userid = snippets[3];
-        if (!userid || userid === this.founderUserId || userid === this.useridg) return;
-
-        let shouldBan = this.config.kickall;
-        if (!shouldBan && this.config.kickbybl) {
-            const kl = (this.config.kblacklist || "").toLowerCase().split("\n");
-            const kgl = (this.config.kgangblacklist || "").toLowerCase().split("\n");
-            if (kl.some(k => k.trim() && username.includes(k.trim()))) shouldBan = true;
-            if (kgl.some(g => g.trim() && username.includes(g.trim()))) shouldBan = true;
-        }
-
-        if (shouldBan) {
-            this.addLog(this.wsNumber, `🚫 JOIN BAN: ${username}`);
-            setTimeout(() => { if (ws.readyState === ws.OPEN) ws.send(`BAN ${userid}\r\n`); }, 200);
+        try {
+            console.log(`[WS${this.wsNumber}] BAN mode handler called`);
+            console.log(`[WS${this.wsNumber}] BAN mode options - Everyone=${this.config.kickall}, ByBlacklist=${this.config.kickbybl}, Dad+=${this.config.dadplus}`);
+            
+            // Parse JOIN message format: "JOIN <channel> <username> <userid> ..."
+            const parts = text.split(" ");
+            let username = "";
+            let userid = "";
+            
+            if (parts.length >= 4) {
+                username = parts[2] ? parts[2].toLowerCase() : "";
+                userid = parts[3] || "";
+            }
+            
+            console.log(`[WS${this.wsNumber}] BAN mode - checking user: ${username} (${userid})`);
+            
+            if (!userid || !username) return;
+            
+            // Skip self
+            if (userid === this.useridg) {
+                console.log(`[WS${this.wsNumber}] Skipping self in BAN mode`);
+                return;
+            }
+            
+            // Skip planet founder
+            if (userid === this.founderUserId) {
+                console.log(`[WS${this.wsNumber}] Skipping BAN for planet founder ${userid}`);
+                this.addLog(this.wsNumber, `👑 Skipping BAN for planet owner`);
+                return;
+            }
+            
+            let shouldBan = false;
+            let reason = "";
+            
+            // Check "Everyone" mode - ban everyone
+            if (this.config.kickall) {
+                shouldBan = true;
+                reason = "everyone";
+                console.log(`[WS${this.wsNumber}] BAN mode - Everyone mode active, banning all users`);
+            }
+            
+            // Check "By Blacklist" mode
+            if (!shouldBan && this.config.kickbybl) {
+                const kblacklist = (this.config.kblacklist || "").toLowerCase().split("\n").filter(k => k.trim());
+                const kgangblacklist = (this.config.kgangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+                
+                console.log(`[WS${this.wsNumber}] BAN mode - Kick Blacklist Users: [${kblacklist.join(', ')}]`);
+                console.log(`[WS${this.wsNumber}] BAN mode - Kick Blacklist Clans: [${kgangblacklist.join(', ')}]`);
+                
+                // Check kblacklist
+                for (const blocked of kblacklist) {
+                    if (blocked && username.includes(blocked)) {
+                        shouldBan = true;
+                        reason = `kblacklist: ${blocked}`;
+                        console.log(`[WS${this.wsNumber}] BAN mode - MATCH in kblacklist: ${blocked}`);
+                        break;
+                    }
+                }
+                
+                // Check kgangblacklist
+                if (!shouldBan) {
+                    for (const gang of kgangblacklist) {
+                        if (gang && username.includes(gang)) {
+                            shouldBan = true;
+                            reason = `kgangblacklist: ${gang}`;
+                            console.log(`[WS${this.wsNumber}] BAN mode - MATCH in kgangblacklist: ${gang}`);
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            // Dad+ mode - request user info to check for aura
+            if (this.config.dadplus && !shouldBan) {
+                console.log(`[WS${this.wsNumber}] Dad+ mode - Requesting user info for ${userid}`);
+                ws.send(`WHOIS ${userid}\r\n`);
+            }
+            
+            // Execute BAN if conditions met
+            if (shouldBan) {
+                console.log(`[WS${this.wsNumber}] BAN mode - Sending BAN command for ${userid}`);
+                this.addLog(this.wsNumber, `🚫 Banning ${username} (${userid}) - Reason: ${reason}`);
+                ws.send(`BAN ${userid}\r\n`);
+            } else {
+                console.log(`[WS${this.wsNumber}] BAN mode - No conditions met, not banning ${username}`);
+            }
+            
+        } catch (error) {
+            console.error(`[WS${this.wsNumber}] Error in handleJoinBanMode:`, error);
         }
     }
 
@@ -514,6 +1296,9 @@ class GameLogic {
     // ==================== HELPER METHODS ====================
 
     startAttackSequence(ws, userid, name, mode, label) {
+        console.log(`[WS${this.wsNumber}] startAttackSequence called - userid=${userid}, name=${name}, mode=${mode}, label=${label}`);
+        console.log(`[WS${this.wsNumber}] Config: modena=${this.config.modena}, kickmode=${this.config.kickmode}`);
+        
         this.userFound = true;
         this.useridattack = userid;
         this.useridtarget = userid;
@@ -525,9 +1310,14 @@ class GameLogic {
         this.timeout = setTimeout(() => {
             if (this.useridattack === this.founderUserId) return;
             if (ws.readyState === ws.OPEN) {
-                if (this.config.modena) ws.send(`BAN ${userid}\r\n`);
-                else if (this.config.kickmode) ws.send(`KICK ${userid}\r\n`);
-                else {
+                if (this.config.modena) {
+                    console.log(`[WS${this.wsNumber}] Sending BAN command (modena=true)`);
+                    ws.send(`BAN ${userid}\r\n`);
+                } else if (this.config.kickmode) {
+                    console.log(`[WS${this.wsNumber}] Sending KICK command (kickmode=true)`);
+                    ws.send(`KICK ${userid}\r\n`);
+                } else {
+                    console.log(`[WS${this.wsNumber}] Sending ACTION 3 command (imprison)`);
                     ws.send(`ACTION 3 ${userid}\r\n`);
                     this.markTargetAttacked(userid);
                 }
@@ -553,59 +1343,91 @@ class GameLogic {
         this.startAttackSequence(ws, target.id, target.name, "attack", "StartAttack");
     }
 
-    _parseTargetList(text, isKickCheck) {
-        const users = [];
-        const data = text.replaceAll("+", "").toLowerCase();
-
-        const blSource = isKickCheck ? (this.config.kblacklist || "") : (this.config.blacklist || "");
-        const gblSource = isKickCheck ? (this.config.kgangblacklist || "") : (this.config.gangblacklist || "");
-
-        const blacklist = blSource.toLowerCase().split("\n").filter(x => x.trim());
-        const gangblacklist = gblSource.toLowerCase().split("\n").filter(x => x.trim());
-
-        blacklist.forEach(element => {
-            if (element && data.includes(element)) {
-                const replace = element + " ";
-                const replaced = data.replaceAll(replace, "*");
-                const arr = replaced.split("*");
-                arr.shift();
-                if (arr[0]) {
-                    const uid = arr[0].split(" ")[0];
-                    if (uid && uid !== this.useridg && uid !== this.founderUserId && !users.find(u => u.userid === uid)) {
-                        users.push({ userid: uid, username: element });
-                    }
-                }
-            }
-        });
-
-        gangblacklist.forEach(element => {
-            if (element && data.includes(element)) {
-                const replace = element + " ";
-                const replaced = data.replaceAll(replace, "*");
-                const arr = replaced.split("*");
-                arr.shift();
-                for (let i = 0; i < arr.length; i++) {
-                    const value = arr[i];
-                    const parts = value.split(" ");
-                    const uid = parts[1];
-                    const name = parts[0];
-                    if (uid && uid !== this.useridg && uid !== this.founderUserId && !users.find(u => u.userid === uid)) {
-                        users.push({ userid: uid, username: name });
-                    }
-                }
-            }
-        });
-        return users;
-    }
-
     // ==================== OTHER HANDLERS ====================
 
     handle860Message(ws, snippets, text) {
-        if (this.config.dadplus && text.toLowerCase().includes("aura")) {
-            // Dad+ Logic: Log user with aura. If we want to attack them, that logic would go here.
-            // Legacy code usually just logged it or used it for 'finding' hidden users.
-            const userid = snippets[1];
-            this.addLog(this.wsNumber, `✨ Aura detected on ${userid}`);
+        try {
+            // Check if Dad+ mode is enabled
+            if (!this.config.dadplus) return;
+            
+            // Check if message contains "aura" (special effect/status)
+            const textLower = text.toLowerCase();
+            if (!textLower.includes("aura")) return;
+            
+            // Parse batch 860 response - can contain multiple users
+            // Format: 860 userid1 data1 userid2 data2 userid3 data3 ...
+            // We need to find all userids that have "aura" in their data
+            
+            console.log(`[WS${this.wsNumber}] Dad+ mode - Processing 860 message with aura`);
+            
+            // Split by whitespace to find user IDs with aura
+            const parts = text.split(/\s+/);
+            const usersWithAura = [];
+            
+            // Find all numeric user IDs (length >= 6) that are followed by data containing "aura"
+            for (let i = 1; i < parts.length; i++) {
+                const part = parts[i];
+                // Check if this is a user ID (numeric, length >= 6)
+                if (!isNaN(part) && part.length >= 6) {
+                    // Check if the next few parts contain "aura"
+                    let hasAura = false;
+                    for (let j = i + 1; j < Math.min(i + 5, parts.length); j++) {
+                        if (parts[j].toLowerCase().includes("aura")) {
+                            hasAura = true;
+                            break;
+                        }
+                    }
+                    if (hasAura) {
+                        usersWithAura.push(part);
+                    }
+                }
+            }
+            
+            console.log(`[WS${this.wsNumber}] Dad+ mode - Found ${usersWithAura.length} user(s) with aura: [${usersWithAura.join(', ')}]`);
+            
+            // Process each user with aura
+            usersWithAura.forEach((userid, index) => {
+                console.log(`[WS${this.wsNumber}] Dad+ mode - Checking user with aura: ${userid}`);
+                
+                // Skip self
+                if (userid === this.useridg) {
+                    console.log(`[WS${this.wsNumber}] Dad+ mode - Skipping self: ${userid}`);
+                    return;
+                }
+                
+                // Skip founder
+                if (userid === this.founderUserId) {
+                    console.log(`[WS${this.wsNumber}] Dad+ mode - Skipping founder: ${userid}`);
+                    this.addLog(this.wsNumber, `👑 Skipping Dad+ action for planet owner`);
+                    return;
+                }
+                
+                // Stagger actions to avoid flooding
+                setTimeout(() => {
+                    if (ws.readyState !== ws.OPEN) return;
+                    
+                    // Check which mode we're in
+                    if (this.config.modena === true) {
+                        // N/A mode - BAN user with aura (applies to ALL connections)
+                        console.log(`[WS${this.wsNumber}] Dad+ mode - BAN user with aura: ${userid}`);
+                        this.addLog(this.wsNumber, `🚫 Dad+ Banning user with aura: ${userid}`);
+                        ws.send(`BAN ${userid}\r\n`);
+                    } else if (this.config.kickmode === true) {
+                        // Kick mode
+                        console.log(`[WS${this.wsNumber}] Dad+ mode - KICK user with aura: ${userid}`);
+                        this.addLog(this.wsNumber, `👢 Dad+ Kicking user with aura: ${userid}`);
+                        ws.send(`KICK ${userid}\r\n`);
+                    } else {
+                        // Imprison mode or Normal Attack mode
+                        console.log(`[WS${this.wsNumber}] Dad+ mode - IMPRISON user with aura: ${userid}`);
+                        this.addLog(this.wsNumber, `⚔️ Dad+ Imprisoning user with aura: ${userid}`);
+                        ws.send(`ACTION 3 ${userid}\r\n`);
+                        this.markTargetAttacked(userid);
+                    }
+                }, index * 100); // Stagger by 100ms
+            });
+        } catch (error) {
+            console.error(`[WS${this.wsNumber}] Error in handle860Message:`, error);
         }
     }
 
@@ -620,21 +1442,168 @@ class GameLogic {
         this.currentPlanet = planet;
         this.inPrison = planet && planet.startsWith("Prison");
         
+        // Also check for PRISON message format (when you get imprisoned)
+        if (snippets[1] === "PRISON" && snippets[2] === "0") {
+            this.inPrison = true;
+            this.currentPlanet = "Prison";
+            console.log(`[WS${this.wsNumber}] PRISON message detected - setting inPrison=true`);
+            this.addLog(this.wsNumber, `🔴 You were imprisoned!`);
+        }
+        
         this.addLog(this.wsNumber, `📍 Planet: ${planetInfo}`);
+        console.log(`[WS${this.wsNumber}] Prison status: ${this.inPrison}, Planet: ${planet}`);
         
         if (this.inPrison && this.config.autorelease) {
             this.addLog(this.wsNumber, `🔓 Prison detected - attempting escape`);
-            setTimeout(() => this.escapeAll(), 1000);
+            setTimeout(async () => {
+                await this.escapeAll();
+                
+                // Rejoin target planet after escape
+                const targetPlanet = this.config.planet;
+                if (targetPlanet && ws.readyState === ws.OPEN) {
+                    setTimeout(() => {
+                        if (ws.readyState === ws.OPEN) {
+                            ws.send(`JOIN ${targetPlanet}\r\n`);
+                            this.addLog(this.wsNumber, `🔄 Rejoining ${targetPlanet}`);
+                        }
+                    }, 3000);
+                }
+            }, 1000);
         }
     }
 
     handlePartMessage(ws, snippets, text) {
-        if (snippets[1] === this.useridtarget) {
-            this.userFound = false;
-            if (this.timeout) clearTimeout(this.timeout);
+        try {
+            const userid = snippets[1] ? snippets[1].replace(/(\r\n|\n|\r)/gm, "") : "";
+            
+            if (userid === this.useridtarget) {
+                this.addLog(this.wsNumber, `👋 Target left: ${userid}`);
+                this.userFound = false;
+                this.useridtarget = null;
+                this.useridattack = null;
+                if (this.timeout) {
+                    clearTimeout(this.timeout);
+                    this.timeout = null;
+                }
+            }
+
+            // Remove from target arrays
+            const index = this.targetids.indexOf(userid);
+            if (index > -1) {
+                this.targetids.splice(index, 1);
+                this.targetnames.splice(index, 1);
+            }
+            
+            const attackIndex = this.attackids.indexOf(userid);
+            if (attackIndex > -1) {
+                this.attackids.splice(attackIndex, 1);
+                this.attacknames.splice(attackIndex, 1);
+            }
+
+            // SMART MODE: Switch to new target if current target left
+            if (this.config.smart && userid === this.useridattack && this.attackids.length > 0) {
+                const newTarget = this.selectSmartTarget();
+                if (newTarget) {
+                    this.useridattack = newTarget.id;
+                    this.addLog(this.wsNumber, `🎯 Smart Switch: ${newTarget.name}`);
+                }
+            }
+            
+            // SMART MODE: Clear timeout if no targets left
+            if (this.config.smart && this.targetids.length === 0) {
+                if (this.timeout) {
+                    clearTimeout(this.timeout);
+                    this.timeout = null;
+                }
+                this.userFound = false;
+                this.addLog(this.wsNumber, `⏸️ Standing now..`);
+            }
+        } catch (error) {
+            console.error(`[WS${this.wsNumber}] Error in handlePart:`, error);
         }
     }
-    handleSleepMessage(ws, snippets, text) { this.handlePartMessage(ws, snippets, text); }
+
+    handleSleepMessage(ws, snippets, text) {
+        try {
+            const userid = snippets[1] ? snippets[1].replace(/(\r\n|\n|\r)/gm, "") : "";
+            
+            // Check if sleeping user is the planet founder
+            const isFounder = (userid === this.founderUserId);
+            
+            // Check if it's our target
+            if (userid === this.useridtarget) {
+                if (isFounder) {
+                    this.addLog(this.wsNumber, `👑 Planet owner sleeping: ${userid} - staying on planet`);
+                } else {
+                    this.addLog(this.wsNumber, `💤 Target sleeping: ${userid}`);
+                }
+                
+                this.userFound = false;
+                this.useridtarget = null;
+                this.useridattack = null;
+                
+                if (this.timeout) {
+                    clearTimeout(this.timeout);
+                    this.timeout = null;
+                }
+                
+                // If founder is sleeping, DON'T quit - stay on planet and wait for other rivals
+                if (isFounder) {
+                    this.addLog(this.wsNumber, `⏸️ Waiting for other rivals on planet`);
+                    return;
+                }
+                
+                // For non-founder targets, proceed with normal quit/reconnect logic
+                if (this.config.sleeping || this.config.exitting) {
+                    setTimeout(() => {
+                        if (ws.readyState === ws.OPEN) {
+                            ws.send("QUIT :ds\r\n");
+                            this.addLog(this.wsNumber, `🚪 QUIT (target sleeping)`);
+                            
+                            if (this.config.sleeping && this.config.connected) {
+                                this.OffSleep(ws);
+                            }
+                        }
+                    }, 100);
+                }
+            }
+
+            // Remove from ALL target arrays
+            const index = this.targetids.indexOf(userid);
+            if (index > -1) {
+                this.targetids.splice(index, 1);
+                this.targetnames.splice(index, 1);
+                this.addLog(this.wsNumber, `Removed sleeping user from targets`);
+            }
+            
+            const attackIndex = this.attackids.indexOf(userid);
+            if (attackIndex > -1) {
+                this.attackids.splice(attackIndex, 1);
+                this.attacknames.splice(attackIndex, 1);
+            }
+
+            // SMART MODE: Switch to new target if current target is sleeping
+            if (this.config.smart && userid === this.useridattack && this.attackids.length > 0) {
+                const newTarget = this.selectSmartTarget();
+                if (newTarget) {
+                    this.useridattack = newTarget.id;
+                    this.addLog(this.wsNumber, `🎯 Smart Switch: ${newTarget.name}`);
+                }
+            }
+            
+            // SMART MODE: Clear timeout if no targets left
+            if (this.config.smart && this.targetids.length === 0) {
+                if (this.timeout) {
+                    clearTimeout(this.timeout);
+                    this.timeout = null;
+                }
+                this.userFound = false;
+                this.addLog(this.wsNumber, `⏸️ Standing now..`);
+            }
+        } catch (error) {
+            console.error(`[WS${this.wsNumber}] Error in handleSleep:`, error);
+        }
+    }
 
     handle850Message(ws, snippets, text) {
         if (snippets[6] === "3s") {
@@ -663,48 +1632,204 @@ class GameLogic {
     }
 
     async escapeWithCode(recoveryCode, label) {
-        if (!recoveryCode) return false;
-        const userID = this.useridg || "0";
-        const password = this.passwordg || "0";
+        if (!recoveryCode || recoveryCode === '') {
+            return false;
+        }
+        
+        if (!this.useridg || !this.passwordg) {
+            console.log(`[WS${this.wsNumber}] No credentials for escape`);
+            return false;
+        }
+
+        const userID = this.useridg;
+        const password = this.passwordg;
+        
+        console.log(`[WS${this.wsNumber}] Escape attempt: userID=${userID}, label=${label}`);
+        
         const boundary = '----WebKitFormBoundarylRahhWQJyn2QX0gB';
         const formData = [
-            `--${boundary}`, 'Content-Disposition: form-data; name="a"', '', 'jail_free',
-            `--${boundary}`, 'Content-Disposition: form-data; name="type"', '', 'escapeItemDiamond',
-            `--${boundary}`, 'Content-Disposition: form-data; name="usercur"', '', userID,
-            `--${boundary}`, 'Content-Disposition: form-data; name="ajax"', '', '1', `--${boundary}--`
+            `--${boundary}`,
+            'Content-Disposition: form-data; name="a"',
+            '',
+            'jail_free',
+            `--${boundary}`,
+            'Content-Disposition: form-data; name="type"',
+            '',
+            'escapeItemDiamond',
+            `--${boundary}`,
+            'Content-Disposition: form-data; name="usercur"',
+            '',
+            userID,
+            `--${boundary}`,
+            'Content-Disposition: form-data; name="ajax"',
+            '',
+            '1',
+            `--${boundary}--`
         ].join('\r\n');
 
+        const url = `https://galaxy.mobstudio.ru/services/?&userID=${userID}&password=${password}&query_rand=${Math.random()}`;
+        const parsedUrl = new URL(url);
+
         const options = {
-            hostname: 'galaxy.mobstudio.ru', port: 443,
-            path: `/services/?&userID=${userID}&password=${password}&query_rand=${Math.random()}`,
+            hostname: parsedUrl.hostname,
+            port: 443,
+            path: parsedUrl.pathname + parsedUrl.search,
             method: 'POST',
-            headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Content-Length': Buffer.byteLength(formData), 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+            headers: {
+                'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                'Content-Length': Buffer.byteLength(formData),
+                'Accept': '*/*',
+                'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8',
+                'Priority': 'u=1, i',
+                'Sec-CH-UA': '"Google Chrome";v="137", "Chromium";v="137", "Not/A)Brand";v="24"',
+                'Sec-CH-UA-Mobile': '?0',
+                'Sec-CH-UA-Platform': '"Windows"',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-origin',
+                'X-Galaxy-Client-Ver': '9.5',
+                'X-Galaxy-Kbv': '352',
+                'X-Galaxy-Lng': 'en',
+                'X-Galaxy-Model': 'chrome 137.0.0.0',
+                'X-Galaxy-Orientation': 'portrait',
+                'X-Galaxy-Os-Ver': '1',
+                'X-Galaxy-Platform': 'web',
+                'X-Galaxy-Scr-Dpi': '1',
+                'X-Galaxy-Scr-H': '675',
+                'X-Galaxy-Scr-W': '700',
+                'X-Galaxy-User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36'
+            }
         };
+
         return new Promise((resolve) => {
             const req = https.request(options, (res) => {
                 let data = '';
-                res.on('data', c => data += c);
+                res.on('data', (chunk) => data += chunk);
                 res.on('end', () => {
-                    const success = data.includes('"success":true') || data.includes('escaped');
-                    if (success) this.addLog(this.wsNumber, `✅ ${label} Escape Success!`);
-                    resolve(success);
+                    const responsePreview = data ? data.substring(0, 200).replace(/\s+/g, ' ') : 'empty';
+                    console.log(`[WS${this.wsNumber}] ${label} escape response:`, responsePreview);
+                    
+                    if (!data || data.length === 0) {
+                        this.addLog(this.wsNumber, `⚠️ Empty response from escape API`);
+                        resolve(false);
+                    } else if (data.includes("Wrong escape type")) {
+                        this.addLog(this.wsNumber, `⚠️ Wrong escape type (no diamond or not in prison)`);
+                        resolve(false);
+                    } else if (data.includes("not in prison") || data.includes("not imprisoned")) {
+                        this.addLog(this.wsNumber, `ℹ️ Not in prison - no escape needed`);
+                        resolve(false);
+                    } else if (data.includes("error") || data.includes("Error") || data.includes('"success":false')) {
+                        console.log(`[WS${this.wsNumber}] ${label}: Escape failed - API error`);
+                        this.addLog(this.wsNumber, `❌ ${label} failed`);
+                        resolve(false);
+                    } else if (data.includes('"freeResult":{"success":true}') || data.includes('"success":true') || data.includes("escaped") || data.includes("free")) {
+                        console.log(`[WS${this.wsNumber}] ${label}: Escape successful!`);
+                        this.addLog(this.wsNumber, `✅ ${label} escape successful!`);
+                        resolve(true);
+                    } else {
+                        console.log(`[WS${this.wsNumber}] ${label}: Unknown response`);
+                        this.addLog(this.wsNumber, `❓ ${label} unknown response`);
+                        resolve(false);
+                    }
+                });
+                res.on('error', (error) => {
+                    this.addLog(this.wsNumber, `❌ Escape error: ${error.message}`);
+                    resolve(false);
                 });
             });
-            req.on('error', () => resolve(false));
+            
+            req.on('error', (error) => {
+                console.error(`[WS${this.wsNumber}] Escape error (${label}):`, error);
+                this.addLog(this.wsNumber, `❌ ${label} error: ${error.message}`);
+                resolve(false);
+            });
+            
             req.write(formData);
             req.end();
         });
     }
 
     OffSleep(ws) {
-        if (this.offSleepRetryCount >= this.maxOffSleepRetries) return;
-        this.isOffSleepActive = true;
-        const delay = 5000 * Math.pow(1.5, this.offSleepRetryCount);
-        this.reconnectTimeoutId = setTimeout(() => {
-            if (this.config.connected && this.reconnect) this.reconnect(this.wsNumber);
+        try {
+            console.log(`[WS${this.wsNumber}] ⏰ OffSleep called - config.connected=${this.config.connected}, retryCount=${this.offSleepRetryCount}`);
+            this.addLog(this.wsNumber, `⏰ OffSleep START (connected=${this.config.connected}, retry=${this.offSleepRetryCount})`);
+            
+            // Check maximum retry limit
+            if (this.offSleepRetryCount >= this.maxOffSleepRetries) {
+                console.log(`[WS${this.wsNumber}] ❌ Max OffSleep retries (${this.maxOffSleepRetries}) reached - stopping reconnection`);
+                this.addLog(this.wsNumber, `❌ Max retries (${this.maxOffSleepRetries}) reached - stopping`);
+                this.isOffSleepActive = false;
+                this.offSleepRetryCount = 0;
+                return;
+            }
+            
+            // Set flag to prevent race condition with ws.on('close') handler
+            this.isOffSleepActive = true;
+            
+            // DON'T terminate WebSocket here - QUIT command already sent!
+            console.log(`[WS${this.wsNumber}] Waiting for clean close from QUIT command`);
+            this.addLog(this.wsNumber, `⏳ Waiting for server to close connection`);
+            
+            // Schedule reconnection with exponential backoff + jitter
+            const baseReconnectTime = parseInt(this.config.reconnect || 5000);
+            const backoffMultiplier = Math.pow(1.5, this.offSleepRetryCount); // 1.5x per retry
+            const maxBackoff = 60000; // Max 60 seconds
+            const backoffTime = Math.min(baseReconnectTime * backoffMultiplier, maxBackoff);
+            
+            // Add jitter (±20%) to prevent thundering herd
+            const jitterRange = backoffTime * 0.2;
+            const jitter = (Math.random() * jitterRange * 2) - jitterRange;
+            const reconnectTime = Math.max(100, Math.floor(backoffTime + jitter)); // Min 100ms
+            
+            console.log(`[WS${this.wsNumber}] Creating reconnect timeout (base=${baseReconnectTime}ms, backoff=${Math.floor(backoffTime)}ms, jitter=${Math.floor(jitter)}ms, final=${reconnectTime}ms)`);
+            this.addLog(this.wsNumber, `⏱️ Reconnect in ${Math.floor(reconnectTime/1000)}s (retry ${this.offSleepRetryCount + 1}/${this.maxOffSleepRetries})`);
+            
+            // Increment retry count
             this.offSleepRetryCount++;
+            
+            const timeoutId = setTimeout(() => {
+                // Double-check if user disconnected before reconnecting
+                console.log(`[WS${this.wsNumber}] Reconnect timeout fired - checking connected=${this.config.connected}`);
+                this.addLog(this.wsNumber, `⏰ Timeout fired! Checking connected=${this.config.connected}`);
+                
+                if (!this.config.connected && typeof this.config.connected !== 'undefined') {
+                    console.log(`[WS${this.wsNumber}] ❌ User disconnected - skipping auto-reconnect`);
+                    this.addLog(this.wsNumber, `❌ User disconnected - SKIPPING reconnect`);
+                    this.isOffSleepActive = false;
+                    this.offSleepRetryCount = 0;
+                    this.reconnectTimeoutId = null;
+                    return;
+                }
+                
+                console.log(`[WS${this.wsNumber}] ✅ Proceeding with auto-reconnect`);
+                this.addLog(this.wsNumber, `✅ Proceeding with RECONNECT!`);
+                
+                // Clear the stored timeout ID before reconnecting
+                this.reconnectTimeoutId = null;
+                
+                // Reset OffSleep flag before reconnecting
+                this.isOffSleepActive = false;
+                
+                // reconnectCallback will also check if user disconnected
+                if (this.reconnect) {
+                    console.log(`[WS${this.wsNumber}] 🔄 Calling reconnect callback for WS${this.wsNumber}`);
+                    this.reconnect(this.wsNumber);
+                } else {
+                    console.error(`[WS${this.wsNumber}] ❌ ERROR: reconnect callback is not defined!`);
+                    this.addLog(this.wsNumber, `❌ ERROR: Cannot reconnect - callback missing`);
+                }
+            }, reconnectTime);
+            
+            // Store timeout ID so it can be cleared if needed
+            this.reconnectTimeoutId = timeoutId;
+            console.log(`[WS${this.wsNumber}] Stored reconnectTimeoutId=${timeoutId}`);
+            this.addLog(this.wsNumber, `💾 Stored timeoutId=${timeoutId}`);
+            
+        } catch (error) {
+            console.error(`[WS${this.wsNumber}] Error in OffSleep:`, error);
             this.isOffSleepActive = false;
-        }, delay);
+            this.reconnectTimeoutId = null;
+        }
     }
 
     destroy() {

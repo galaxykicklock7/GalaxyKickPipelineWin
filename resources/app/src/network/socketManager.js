@@ -110,6 +110,9 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
     ws.on('message', (data) => {
         const text = data.toString();
         const snippets = text.split(" ");
+        
+        // Debug: Log all messages
+        console.log(`[WS${wsNumber}] Received: ${snippets[0]} ${snippets.slice(1, 4).join(' ')}`);
 
         if (snippets[0] === "HAAAPSI") {
             savedHaaapsi = snippets[1];
@@ -163,6 +166,32 @@ function createWebSocketConnectionInternal(wsNumber, recoveryCode, retryState) {
         if (snippets[0] === "860") gameLogic.handle860Message(ws, snippets, text);
         if (snippets[0] === "471") gameLogic.handle471Message(ws, snippets, text);
         if (snippets[0] === "900" || snippets[0].trim() === "900") gameLogic.handle900Message(ws, snippets, text);
+        
+        // Handle PRISON message (when you get imprisoned)
+        if (snippets[1] === "PRISON" && snippets[2] === "0") {
+            gameLogic.inPrison = true;
+            gameLogic.currentPlanet = "Prison";
+            console.log(`[WS${wsNumber}] PRISON message detected - setting inPrison=true`);
+            addLog(wsNumber, `🔴 You were imprisoned!`);
+            
+            if (gameLogic.config.autorelease) {
+                addLog(wsNumber, `🔓 Prison detected - attempting escape`);
+                setTimeout(async () => {
+                    await gameLogic.escapeAll();
+                    
+                    // Rejoin target planet after escape
+                    const targetPlanet = gameLogic.config.planet;
+                    if (targetPlanet && ws.readyState === ws.OPEN) {
+                        setTimeout(() => {
+                            if (ws.readyState === ws.OPEN) {
+                                ws.send(`JOIN ${targetPlanet}\r\n`);
+                                addLog(wsNumber, `🔄 Rejoining ${targetPlanet}`);
+                            }
+                        }, 3000);
+                    }
+                }, 1000);
+            }
+        }
     });
 
     ws.on('close', (code, reason) => {
