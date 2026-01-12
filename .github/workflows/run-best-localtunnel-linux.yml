@@ -4,9 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       subdomain:
-        description: 'Custom subdomain (e.g., best-backend-xyz for https://best-backend-xyz.loca.lt)'
+        description: 'Custom subdomain (e.g., bharanitest007 for https://bharanitest007.loca.lt)'
         required: true
-        default: 'best-backend'
         type: string
       rc1:
         description: 'Recovery Code 1'
@@ -44,10 +43,11 @@ on:
         type: string
 
 jobs:
-  run-best-headless:
+  deploy-backend:
+    name: 🚀 Deploy for ${{ github.event.inputs.subdomain }}
     runs-on: ubuntu-latest
     timeout-minutes: 360  # Maximum 6 hours
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -60,7 +60,6 @@ jobs:
       - name: Install system dependencies for Electron
         run: |
           sudo apt-get update
-          
           # Install most dependencies
           sudo apt-get install -y \
             libnss3 \
@@ -134,7 +133,6 @@ jobs:
           echo "✅ All required files present"
           
           # Start BEST in background (use headless script for Linux)
-          # The HEADLESS env var is already set above, npm run headless will use it
           echo "🚀 Starting BEST with HEADLESS=true (no GUI window)"
           nohup npm run headless > ../../best-server.log 2>&1 &
           BEST_PID=$!
@@ -210,12 +208,8 @@ jobs:
             LT_PID=$!
             echo "LocalTunnel started with PID: $LT_PID"
           else
-            echo "Using random subdomain"
-            tunnel_url="https://random.loca.lt"
-            
-            nohup lt --port 3000 > localtunnel.log 2>&1 &
-            LT_PID=$!
-            echo "LocalTunnel started with PID: $LT_PID"
+            echo "❌ Subdomain is required!"
+            exit 1
           fi
           
           echo "Waiting for tunnel to establish..."
@@ -245,15 +239,9 @@ jobs:
           echo ""
           echo "=========================================="
           echo ""
-          
-          if [ -n "$subdomain" ]; then
-            echo "✨ Custom subdomain: $subdomain"
-            echo "📌 This URL will be consistent on future runs!"
-            echo "   (as long as you use the same subdomain)"
-          else
-            echo "⚠️  Random subdomain - URL will change on next run"
-          fi
-          
+          echo "✨ Custom subdomain: $subdomain"
+          echo "📌 This URL will be consistent on future runs!"
+          echo "   (as long as you use the same subdomain)"
           echo ""
           echo "📋 Share this URL with your users!"
           echo ""
@@ -295,6 +283,7 @@ jobs:
         if: ${{ github.event.inputs.rc1 != '' || github.event.inputs.rc2 != '' || github.event.inputs.rc3 != '' || github.event.inputs.rc4 != '' }}
         run: |
           echo "Connecting to game server..."
+          
           if curl -X POST http://localhost:3000/api/connect \
             -H "Content-Type: application/json" > /dev/null 2>&1; then
             echo "✅ Connection initiated"
@@ -363,7 +352,7 @@ jobs:
           
           echo ""
           echo "=========================================="
-          echo "🚀 Backend is Running!"
+          echo "🚀 Backend is Running for $subdomain!"
           echo "=========================================="
           echo ""
           echo "Tunnel URL: $tunnel_url"
