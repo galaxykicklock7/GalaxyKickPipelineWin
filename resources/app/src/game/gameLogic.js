@@ -497,27 +497,42 @@ class GameLogic {
             }
         }
 
+        // DEBUG: Log current config state
+        console.log(`[WS${this.wsNumber}] 353 - Config check:`, {
+            modena: this.config.modena,
+            lowsecmode: this.config.lowsecmode,
+            kickmode: this.config.kickmode,
+            kickall: this.config.kickall,
+            kickbybl: this.config.kickbybl,
+            dadplus: this.config.dadplus
+        });
+
         // Check N/A mode first - applies to ALL connections
         if (this.config.modena === true) {
+            console.log(`[WS${this.wsNumber}] 353 - Routing to BAN mode`);
             this.handle353BanMode(ws, snippets, text);
             return;
         }
 
         // Check Low Sec mode
         if (this.config.lowsecmode) {
+            console.log(`[WS${this.wsNumber}] 353 - Routing to Low Sec mode`);
             this.handle353LowSec(ws, snippets, text);
             return;
         }
 
         // Check if any kick/imprison mode is enabled
         const kickModeEnabled = this.config.kickall || this.config.kickbybl || this.config.dadplus;
+        console.log(`[WS${this.wsNumber}] 353 - kickModeEnabled: ${kickModeEnabled}`);
         
         if (kickModeEnabled) {
             // Only run kick/imprison mode handler
+            console.log(`[WS${this.wsNumber}] 353 - Routing to Kick/Imprison mode`);
             this.handle353KickMode(ws, snippets, text);
         } else if (!this.config.kickmode) {
             // Only run normal attack mode if NOT in kick mode
             // (kickmode=true with no modes enabled means "do nothing")
+            console.log(`[WS${this.wsNumber}] 353 - Routing to Normal attack mode`);
             this.handle353Normal(ws, snippets, text);
         } else {
             // kickmode=true but no modes enabled - do nothing
@@ -1209,7 +1224,15 @@ class GameLogic {
     // ==================== JOIN HANDLERS ====================
 
     handleJoinMessage(ws, snippets, text) {
-        console.log(`[WS${this.wsNumber}] JOIN handler - modena=${this.config.modena}, kickmode=${this.config.kickmode}, lowsecmode=${this.config.lowsecmode}`);
+        // DEBUG: Log current config state
+        console.log(`[WS${this.wsNumber}] JOIN - Config check:`, {
+            modena: this.config.modena,
+            lowsecmode: this.config.lowsecmode,
+            kickmode: this.config.kickmode,
+            kickall: this.config.kickall,
+            kickbybl: this.config.kickbybl,
+            dadplus: this.config.dadplus
+        });
         console.log(`[WS${this.wsNumber}] JOIN - Founder ID: ${this.founderUserId || 'NONE'}`);
         
         // Founder ID already loaded from file in handle353Message
@@ -1217,24 +1240,25 @@ class GameLogic {
         
         // Check N/A mode first - applies to ALL connections
         if (this.config.modena === true) {
-            console.log(`[WS${this.wsNumber}] Using BAN mode (N/A selected)`);
+            console.log(`[WS${this.wsNumber}] JOIN - Routing to BAN mode`);
             this.handleJoinBanMode(ws, snippets, text);
             return;
         }
         
         // Check Low Sec mode
         if (this.config.lowsecmode) {
-            console.log(`[WS${this.wsNumber}] Using Low Sec mode`);
+            console.log(`[WS${this.wsNumber}] JOIN - Routing to Low Sec mode`);
             this.handleJoinLowSec(ws, snippets, text);
             return;
         }
         
         // Check if any kick/imprison mode is enabled
         const kickModeEnabled = this.config.kickall || this.config.kickbybl || this.config.dadplus;
+        console.log(`[WS${this.wsNumber}] JOIN - kickModeEnabled: ${kickModeEnabled}`);
         
         if (kickModeEnabled) {
             // Kick/Imprison modes handle JOIN messages via handleJoinKickMode
-            console.log(`[WS${this.wsNumber}] Using Kick/Imprison mode for JOIN`);
+            console.log(`[WS${this.wsNumber}] JOIN - Routing to Kick/Imprison mode`);
             this.handleJoinKickMode(ws, snippets, text);
             return;
         }

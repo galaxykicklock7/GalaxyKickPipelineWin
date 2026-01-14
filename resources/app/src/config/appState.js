@@ -41,6 +41,8 @@ const appState = {
         exitting: true,
         sleeping: false,
         kickmode: true,
+        imprisonmode: false,
+        kickrc: "",
         blacklist: "",
         gangblacklist: "",
         kblacklist: "",

@@ -89,7 +89,9 @@ apiServer.get('/api/logs', (req, res) => {
 apiServer.post('/api/configure', (req, res) => {
   const config = req.body;
 
-  // Update sensitive config keys
+  console.log('[API] /api/configure received:', JSON.stringify(config, null, 2));
+
+  // Update sensitive config keys (recovery codes)
   if (config.rc1 !== undefined) appState.config.rc1 = config.rc1;
   if (config.rc2 !== undefined) appState.config.rc2 = config.rc2;
   if (config.rc3 !== undefined) appState.config.rc3 = config.rc3;
@@ -103,11 +105,25 @@ apiServer.post('/api/configure', (req, res) => {
   if (config.rcl4 !== undefined) appState.config.rcl4 = config.rcl4;
   if (config.rcl5 !== undefined) appState.config.rcl5 = config.rcl5;
 
-  // Update settings
+  // Update kick recovery code (special case - starts with 'rc' but is not a recovery code)
+  if (config.kickrc !== undefined) appState.config.kickrc = config.kickrc;
+
+  // Update all other settings (excluding rc1-5 and rcl1-5)
   Object.keys(config).forEach(key => {
-    if (!key.startsWith('rc') && !key.startsWith('rcl')) {
+    // Skip recovery codes (rc1-5, rcl1-5) and kickrc (already handled above)
+    if (!key.match(/^rc[1-5]$/) && !key.match(/^rcl[1-5]$/) && key !== 'kickrc') {
       appState.config[key] = config[key];
     }
+  });
+
+  // Log the updated config state for kick-related settings
+  console.log('[API] Updated config - Kick settings:', {
+    kickmode: appState.config.kickmode,
+    imprisonmode: appState.config.imprisonmode,
+    kickall: appState.config.kickall,
+    kickbybl: appState.config.kickbybl,
+    dadplus: appState.config.dadplus,
+    kickrc: appState.config.kickrc ? '***' : '(empty)'
   });
 
   // Re-initialize pool

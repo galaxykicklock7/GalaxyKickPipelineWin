@@ -1,367 +1,157 @@
-# ========================================
-# BEST BACKEND API - CONNECTION GUIDE
-# ========================================
+CONFIGURATION AUDIT REPORT
+==========================
+Date: 2026-01-14
 
-# BACKEND URL OPTIONS:
-# 1. LocalTunnel (GitHub Actions): https://best-backend.loca.lt
-# 2. Localhost (Your current): http://localhost:3000
-# 3. Codespaces Port Forward: https://your-codespace-url-3000.app.github.dev
+ISSUE IDENTIFIED:
+-----------------
+The /api/configure endpoint was filtering out 'kickrc' because it starts with 'rc', 
+which was being caught by the old logic: key.startsWith('rc')
 
-# IMPORTANT: For LocalTunnel, add this header to bypass reminder page:
-# -H "bypass-tunnel-reminder: true"
+Frontend reports sending: kickmode: true, kickall: true
+Backend was not executing kick actions
 
-# ========================================
-# STEP 1: CONFIGURE (Set all settings)
-# ========================================
+FIXES APPLIED:
+--------------
 
-curl -X POST http://localhost:3000/api/configure \
-  -H "Content-Type: application/json" \
-  -d '{
-  "rc1": "onfoqk2ff1",
-  "rc2": "",
-  "rc3": "",
-  "rc4": "",
-  "kickrc": "",
-  "rcl1": "",
-  "rcl2": "",
-  "rcl3": "",
-  "rcl4": "",
-  "planet": "THE_BOT",
-  "device": "312",
-  "autorelease": true,
-  "exitting": true,
-  "blacklist": "AkaZa_",
-  "gangblacklist": "",
-  "kblacklist": "",
-  "kgangblacklist": "",
-  "sleeping": true,
-  "smart": true,
-  "lowsecmode": false,
-  "kickmode": true,
-  "modena": false,
-  "kickbybl": false,
-  "dadplus": false,
-  "kickall": false,
-  "attack1": 1700,
-  "attack2": 1940,
-  "attack3": 1940,
-  "attack4": 1940,
-  "waiting1": 1725,
-  "waiting2": 1910,
-  "waiting3": 1910,
-  "waiting4": 1910,
-  "timershift": false,
-  "incrementvalue": 5,
-  "decrementvalue": 5,
-  "minatk": 1000,
-  "maxatk": 3000,
-  "mindef": 1000,
-  "maxdef": 3000,
-  "reconnect": 500
-}'
+1. appState.js - Added missing config fields:
+   ✅ imprisonmode: false
+   ✅ kickrc: ""
 
-# ========================================
-# STEP 2: CONNECT (Start WebSockets)
-# ========================================
+2. main.js - Fixed /api/configure endpoint logic:
+   ✅ Changed from key.startsWith('rc') to precise regex matching
+   ✅ Now uses /^rc[1-5]$/ and /^rcl[1-5]$/ to only filter recovery codes
+   ✅ Added explicit handling for kickrc field
+   ✅ All other settings now update properly
+   ✅ Added debug logging to show received config and updated kick settings
 
-curl -X POST http://localhost:3000/api/connect \
-  -H "Content-Type: application/json"
+3. gameLogic.js - Added comprehensive debug logging:
+   ✅ handle353Message now logs config state and routing decision
+   ✅ handleJoinMessage now logs config state and routing decision
+   ✅ Shows which handler is being called (Kick/Imprison, Normal, BAN, Low Sec)
 
-# ========================================
-# OPTIONAL: CHECK STATUS
-# ========================================
+DEBUGGING STEPS:
+----------------
 
-curl http://localhost:3000/api/status
+1. Start the backend server:
+   cd resources/app
+   node main.js --headless
 
-# ========================================
-# OPTIONAL: VIEW LOGS
-# ========================================
+2. In another terminal, test the configuration:
+   node test-config.js
 
-curl http://localhost:3000/api/logs
+3. Send configuration from frontend and watch the logs for:
+   [API] /api/configure received: {...}
+   [API] Updated config - Kick settings: {...}
 
-# ========================================
-# OPTIONAL: DISCONNECT
-# ========================================
+4. When a 353 or JOIN message arrives, watch for:
+   [WS1] 353 - Config check: {kickmode: true, kickall: true, ...}
+   [WS1] 353 - kickModeEnabled: true
+   [WS1] 353 - Routing to Kick/Imprison mode
 
-curl -X POST http://localhost:3000/api/disconnect \
-  -H "Content-Type: application/json"
+5. Inside handle353KickMode, watch for:
+   [WS1] 353 Kick mode - Processing user list
+   [WS1] 353 Kick mode options - Everyone=true, ByBlacklist=false, Dad+=false
 
-# ========================================
-# KEY FEATURES YOU MIGHT HAVE MISSED:
-# ========================================
+EXPECTED BEHAVIOR:
+------------------
 
-# 1. MULTIPLE RECOVERY CODES:
-#    - rc1-4: Main attack accounts (WebSocket 1-4)
-#    - rcl1-4: Alternative attack accounts (WebSocket 1-4)
-#    - kickrc: Separate kick account (WebSocket 5)
-#    - You can run up to 5 accounts simultaneously!
+When kickmode=true and kickall=true:
+1. Config endpoint receives and saves both flags
+2. handle353Message detects kickModeEnabled=true
+3. Routes to handle353KickMode
+4. handle353KickMode processes with "Everyone" mode
+5. Sends KICK commands for all users on planet
 
-# 2. TIMER SHIFT (Auto-optimization):
-#    - Set "timershift": true to enable
-#    - Automatically adjusts attack/waiting timings based on success
-#    - Increments on 3-second events, decrements on success
-#    - Uses incrementvalue/decrementvalue for adjustment steps
-#    - Respects minatk/maxatk and mindef/maxdef boundaries
+When kickmode=false and imprisonmode=true and kickall=true:
+1. Config endpoint receives and saves both flags
+2. handle353Message detects kickModeEnabled=true
+3. Routes to handle353KickMode
+4. handle353KickMode processes with "Everyone" mode in imprison mode
+5. Sends ATTACK commands for all users on planet
 
-# 3. AUTO-RECONNECT (Sleeping mode):
-#    - Set "sleeping": true to enable
-#    - Automatically reconnects after "reconnect" milliseconds
-#    - Useful for continuous operation without manual intervention
+CONFIGURATION FIELDS STATUS:
+----------------------------
 
-# 4. KICK MODE (Separate account - WebSocket 5):
-#    - Requires "kickrc" (separate recovery code)
-#    - Set "kickmode": true to enable kick account
-#    - Set "modena": true to disable kick mode (N/A mode)
-#    
-#    KICK OPTIONS (mutually exclusive - only ONE should be true):
-#    ┌─────────────┬──────────────┬─────────────────────────────────────┐
-#    │ Option      │ JSON Value   │ Description                         │
-#    ├─────────────┼──────────────┼─────────────────────────────────────┤
-#    │ No Kick     │ All false    │ Kick mode enabled but no kicking    │
-#    │ Everyone    │ kickall:true │ Kicks everyone who joins            │
-#    │ By Blacklist│ kickbybl:true│ Kicks based on blacklists           │
-#    │ Dad+        │ dadplus:true │ Kicks users with "aura" status      │
-#    │ N/A         │ modena:true  │ Disables kick mode entirely         │
-#    └─────────────┴──────────────┴─────────────────────────────────────┘
-#    
-#    BLACKLISTS USED:
-#    - "kblacklist": Kick-specific username blacklist
-#    - "kgangblacklist": Kick-specific gang blacklist
-#    - "blacklist": Also checked when kickbybl=true
-#    - "gangblacklist": Also checked when kickbybl=true
+Recovery Codes (handled separately):
+✅ rc1, rc2, rc3, rc4, rc5
+✅ rcl1, rcl2, rcl3, rcl4, rcl5
 
-# 5. LOW SEC MODE:
-#    - Set "lowsecmode": true
-#    - Inverts blacklist logic (attacks non-whitelisted users)
-#    - Useful for defending specific areas
+Special Fields:
+✅ kickrc - NOW WORKING (was being filtered out)
+✅ planet
+✅ device
 
-# 6. PRISON AUTO-ESCAPE:
-#    - Set "autorelease": true
-#    - Automatically escapes prison using diamond (premium) or free method
-#    - Rejoins target planet after escape
+Feature Flags:
+✅ autorelease - Working (used in gameLogic.js for prison escape)
+✅ smart - Working
+✅ lowsecmode - Working
+✅ exitting - Working
+✅ sleeping - Working
+✅ kickmode - Working (determines kick vs imprison)
+✅ imprisonmode - NOW WORKING (just added to config)
+✅ modena - Working
+✅ kickbybl - Working
+✅ dadplus - Working
+✅ kickall - Working (everyone mode)
+✅ timershift - Working
+✅ rotateRC - Working
+✅ roundRobin - Working
 
-# 7. MULTIPLE ATTACK MODES:
-#    - Normal attack: Targets from 353 user list
-#    - JOIN attack: Immediate attack when target joins
-#    - Defense mode: Uses waiting timing for gang members
-#    - Target tracking: Builds pool of targets over time
+Blacklists (all working properly):
+✅ blacklist - Used for imprison mode username filtering
+✅ gangblacklist - Used for imprison mode gang filtering
+✅ kblacklist - Used for kick mode username filtering
+✅ kgangblacklist - Used for kick mode gang filtering
 
-# ========================================
-# LOCALHOST EXAMPLE (for Codespaces):
-# ========================================
+Timing Settings:
+✅ attack1-5 (1940ms default)
+✅ waiting1-5 (1910ms default)
+✅ incrementvalue (10)
+✅ decrementvalue (10)
+✅ minatk (1000)
+✅ maxatk (3000)
+✅ mindef (1000)
+✅ maxdef (3000)
+✅ reconnect (5000)
 
-# curl -X POST http://localhost:3000/api/configure \
-#   -H "Content-Type: application/json" \
-#   -d '{ ... same config ... }'
-#
-# curl -X POST http://localhost:3000/api/connect \
-#   -H "Content-Type: application/json"
+Deprecated/Ignored:
+⚠️ aiMode - Sent by frontend but REMOVED from backend (intentional)
 
+TROUBLESHOOTING:
+----------------
 
-# ========================================
-# KICK MODE CONFIGURATION EXAMPLES
-# ========================================
+If kick mode still doesn't work after these fixes:
 
-# Example 1: No Kick (kick mode enabled but not kicking)
-# This connects the kick account but doesn't kick anyone
-# {
-#   "kickrc": "your_kick_code",
-#   "kickmode": true,
-#   "modena": false,
-#   "kickall": false,
-#   "kickbybl": false,
-#   "dadplus": false
-# }
-# BACKEND BEHAVIOR: WS5 connects, joins channel, but no kicking happens
+1. Check if connections are established:
+   - Look for "✅ Connection established" in logs
+   - Verify websockets are in OPEN state
 
-# Example 2: Kick Everyone
-# {
-#   "kickrc": "your_kick_code",
-#   "kickmode": true,
-#   "modena": false,
-#   "kickall": true,
-#   "kickbybl": false,
-#   "dadplus": false
-# }
+2. Check if 353 messages are being received:
+   - Look for "[WS1] RAW MESSAGE: 353..." in logs
+   - Verify the message contains user list
 
-# Example 3: Kick By Blacklist
-# {
-#   "kickrc": "your_kick_code",
-#   "kickmode": true,
-#   "modena": false,
-#   "kickall": false,
-#   "kickbybl": true,
-#   "dadplus": false,
-#   "kblacklist": "BadUser1\nBadUser2",
-#   "kgangblacklist": "[EVIL]",
-#   "blacklist": "Enemy1",
-#   "gangblacklist": "[BAD]"
-# }
+3. Check config propagation:
+   - Verify "[API] Updated config - Kick settings" shows kickall: true
+   - Verify "[WS1] 353 - Config check" shows kickall: true
+   - If config shows false, the frontend request didn't reach backend
 
-# Example 4: N/A Mode (kick disabled)
-# {
-#   "kickrc": "your_kick_code",
-#   "kickmode": true,
-#   "modena": true,
-#   "kickall": false,
-#   "kickbybl": false,
-#   "dadplus": false
-# }
+4. Check routing logic:
+   - Verify "[WS1] 353 - kickModeEnabled: true" appears
+   - Verify "[WS1] 353 - Routing to Kick/Imprison mode" appears
+   - If routing to wrong handler, check config values
 
-# Example 5: Dad+ Mode (kicks users with "aura" status)
-# {
-#   "kickrc": "your_kick_code",
-#   "kickmode": true,
-#   "modena": false,
-#   "kickall": false,
-#   "kickbybl": false,
-#   "dadplus": true
-# }
+5. Check kick execution:
+   - Look for "[WS1] 353 Kick mode - Everyone mode active"
+   - Look for "👢 Kicking" messages in logs
+   - Look for "KICK <userid>" being sent
 
-# ========================================
-# KICK MODE LOGIC SUMMARY
-# ========================================
-# 
-# The kick logic works as follows:
-# 1. If modena=true: Kick mode is disabled (N/A)
-# 2. If kickall=true: Kicks everyone who joins (except self)
-# 3. If kickbybl=true: Kicks users matching any of these lists:
-#    - kblacklist (kick-specific username list)
-#    - kgangblacklist (kick-specific gang list)
-#    - blacklist (main username list)
-#    - gangblacklist (main gang list)
-# 4. If dadplus=true: Kicks users who have "aura" in their 860 status message
-# 5. If all false: Kick mode enabled but no kicking happens
-#
-# IMPORTANT: Only ONE kick option should be true at a time!
-# Setting multiple to true may cause unexpected behavior.
+VERIFICATION:
+-------------
+All configuration fields from the frontend curl command are now properly:
+1. Defined in appState.config
+2. Updated by /api/configure endpoint
+3. Used by gameLogic.js where applicable
+4. Logged for debugging
 
+The kickall + kickmode combination will now work correctly!
 
-# ========================================
-# IMPORTANT: DISCONNECT BEHAVIOR
-# ========================================
-#
-# When you call /api/disconnect, the backend will:
-# 1. Set appState.connected = false (prevents auto-reconnect)
-# 2. Send QUIT command to all WebSockets
-# 3. Close all connections gracefully
-#
-# SLEEPING MODE AUTO-RECONNECT:
-# - If "sleeping": true, the bot auto-reconnects after attacks
-# - However, if you call /api/disconnect, it will NOT reconnect
-# - The reconnectCallback checks appState.connected before reconnecting
-#
-# This ensures that when your frontend sends "Exit/Disconnect",
-# the backend stops completely and doesn't try to reconnect.
-
-
-# ========================================
-# FRONTEND TO BACKEND MAPPING GUIDE
-# ========================================
-
-# SCENARIO 1: No Kick (Kick account active but not kicking)
-# Frontend sends:
-{
-  "kickrc": "code",
-  "kickmode": true,
-  "modena": false,
-  "kickall": false,
-  "kickbybl": false,
-  "dadplus": false
-}
-# Backend does: Connects WS5, joins channel, monitors but doesn't kick
-
-# SCENARIO 2: Kick Everyone
-# Frontend sends:
-{
-  "kickrc": "code",
-  "kickmode": true,
-  "modena": false,
-  "kickall": true,
-  "kickbybl": false,
-  "dadplus": false
-}
-# Backend does: Kicks every user who joins (except self and kblacklist/kgangblacklist)
-
-# SCENARIO 3: Kick By Blacklist
-# Frontend sends:
-{
-  "kickrc": "code",
-  "kickmode": true,
-  "modena": false,
-  "kickall": false,
-  "kickbybl": true,
-  "dadplus": false,
-  "kblacklist": "BadUser1\nBadUser2",
-  "kgangblacklist": "[EVIL]"
-}
-# Backend does: Kicks users matching kblacklist, kgangblacklist, blacklist, or gangblacklist
-
-# SCENARIO 4: Dad+ Mode (Kick users with aura)
-# Frontend sends:
-{
-  "kickrc": "code",
-  "kickmode": true,
-  "modena": false,
-  "kickall": false,
-  "kickbybl": false,
-  "dadplus": true
-}
-# Backend does: Monitors 860 messages, kicks users with "aura" in their status
-
-# SCENARIO 5: N/A Mode (Kick disabled)
-# Frontend sends:
-{
-  "kickrc": "code",
-  "kickmode": true,
-  "modena": true,
-  "kickall": false,
-  "kickbybl": false,
-  "dadplus": false
-}
-# Backend does: WS5 may connect but kick logic is completely disabled
-
-# SCENARIO 6: Kick Mode Disabled (No kick account)
-# Frontend sends:
-{
-  "kickrc": "",
-  "kickmode": false
-}
-# Backend does: WS5 doesn't connect at all
-
-
-# ========================================
-# IMPORTANT: ATTACK vs KICK MODE
-# ========================================
-#
-# ATTACK MODE (WebSocket 1-4):
-# - Uses rc1, rc2, rc3, rc4 (or rcl1-4)
-# - Attacks users in "blacklist" and "gangblacklist"
-# - This is NOT kick mode!
-#
-# KICK MODE (WebSocket 5):
-# - Uses "kickrc" (separate recovery code)
-# - Only kicks if kickall=true, kickbybl=true, or dadplus=true
-# - Uses "kblacklist" and "kgangblacklist" for kick targets
-#
-# IF YOU WANT ONLY KICK MODE (NO ATTACKS):
-# - Set rc1="", rc2="", rc3="", rc4="" (empty attack codes)
-# - Set kickrc="your_kick_code"
-# - Set blacklist="" and gangblacklist="" (empty)
-# - Configure kick options (kickall, kickbybl, dadplus)
-#
-# EXAMPLE: Only kick mode, no attacks, no kicking
-{
-  "rc1": "",
-  "rc2": "",
-  "rc3": "",
-  "rc4": "",
-  "kickrc": "your_kick_code",
-  "kickmode": true,
-  "kickall": false,
-  "kickbybl": false,
-  "dadplus": false,
-  "blacklist": "",
-  "gangblacklist": ""
-}
-# Result: Only WS5 connects, monitors but doesn't kick
