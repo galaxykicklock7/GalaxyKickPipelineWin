@@ -525,8 +525,17 @@ class GameLogic {
         // Check N/A mode first - applies to ALL connections
         if (this.config.modena === true) {
             console.log(`[WS${this.wsNumber}] 353 - Routing to BAN mode`);
-            this.handle353BanMode(ws, snippets, text);
-            return;
+            
+            // Check if any BAN sub-mode is enabled
+            const banModeEnabled = this.config.kickall || this.config.kickbybl || this.config.dadplus;
+            
+            if (banModeEnabled) {
+                this.handle353BanMode(ws, snippets, text);
+            } else {
+                console.log(`[WS${this.wsNumber}] BAN mode enabled but no action modes selected (None) - doing nothing`);
+                this.addLog(this.wsNumber, `⚠️ BAN mode: No action selected (None)`);
+            }
+            return; // CRITICAL: Exit early - don't process other modes
         }
 
         // Check Low Sec mode
@@ -563,11 +572,6 @@ class GameLogic {
             // Skip prison channels
             if (channelName && channelName.slice(0, 6) === "Prison") {
                 this.addLog(this.wsNumber, `Skipping prison channel`);
-                return;
-            }
-
-            // ONLY process if at least one mode is enabled
-            if (!this.config.kickall && !this.config.kickbybl && !this.config.dadplus) {
                 return;
             }
             
@@ -708,12 +712,16 @@ class GameLogic {
             }
             
             // OPTION 3: Dad+ mode - Request user info for all users to check for aura
+            // Dad+ runs INDEPENDENTLY of Everyone/Blacklist modes
             if (this.config.dadplus) {
                 console.log(`[WS${this.wsNumber}] Dad+ mode - Requesting info for ${integers.length} users`);
                 this.addLog(this.wsNumber, `🔍 Dad+ checking ${integers.length} users for aura`);
                 
                 integers.forEach((userid, index) => {
                     if (userid === this.useridg || userid === this.founderUserId) return;
+                    
+                    // Skip users already marked for ban by Everyone/Blacklist modes
+                    // (Dad+ will still check them, but they're already being banned)
                     
                     setTimeout(() => {
                         this.sendWhoisWithRetry(ws, userid);
@@ -759,11 +767,6 @@ class GameLogic {
             // Skip prison channels
             if (channelName && channelName.slice(0, 6) === "Prison") {
                 this.addLog(this.wsNumber, `Skipping prison channel`);
-                return;
-            }
-
-            // ONLY process if at least one mode is enabled
-            if (!this.config.kickall && !this.config.kickbybl && !this.config.dadplus) {
                 return;
             }
             
@@ -1294,8 +1297,16 @@ class GameLogic {
         // Check N/A mode first - applies to ALL connections
         if (this.config.modena === true) {
             console.log(`[WS${this.wsNumber}] JOIN - Routing to BAN mode`);
-            this.handleJoinBanMode(ws, snippets, text);
-            return;
+            
+            // Check if any BAN sub-mode is enabled
+            const banModeEnabled = this.config.kickall || this.config.kickbybl || this.config.dadplus;
+            
+            if (banModeEnabled) {
+                this.handleJoinBanMode(ws, snippets, text);
+            } else {
+                console.log(`[WS${this.wsNumber}] BAN mode enabled but no action modes selected (None) - doing nothing`);
+            }
+            return; // CRITICAL: Exit early - don't process other modes
         }
         
         // Check Low Sec mode
@@ -1629,7 +1640,8 @@ class GameLogic {
             }
             
             // Dad+ mode - request user info to check for aura
-            if (this.config.dadplus && !shouldBan) {
+            // Dad+ runs INDEPENDENTLY of Everyone/Blacklist modes
+            if (this.config.dadplus) {
                 console.log(`[WS${this.wsNumber}] Dad+ mode - Requesting user info for ${userid}`);
                 this.sendWhoisWithRetry(ws, userid);
             }
