@@ -583,6 +583,10 @@ class GameLogic {
             console.log(`[WS${this.wsNumber}] 353 BAN - Found ${integers.length} user IDs`);
             console.log(`[WS${this.wsNumber}] 353 BAN - Self ID: ${this.useridg}, Founder ID: ${this.founderUserId || 'NONE'}`);
             
+            // CRITICAL FIX: Parse membersarr for username lookup
+            const members = text.replace(/[+@:]/g, '');
+            const membersarr = members.toLowerCase().split(" ");
+            
             // PERFORMANCE FIX: Use Set for O(1) deduplication instead of array.find()
             const usersToBanSet = new Set();
             const usersToBanMap = new Map(); // userid -> {username, reason}
@@ -778,6 +782,10 @@ class GameLogic {
             
             console.log(`[WS${this.wsNumber}] 353 - Found ${integers.length} user IDs: [${integers.join(', ')}]`);
             console.log(`[WS${this.wsNumber}] 353 - Self ID: ${this.useridg}, Founder ID: ${this.founderUserId || 'NONE'}`);
+            
+            // CRITICAL FIX: Parse membersarr for username lookup
+            const members = text.replace(/[+@:]/g, '');
+            const membersarr = members.toLowerCase().split(" ");
             
             // PERFORMANCE FIX: Use Set for O(1) deduplication instead of array.find()
             const usersToActSet = new Set();
