@@ -27,7 +27,10 @@ apiServer.use((req, res, next) => {
     'http://localhost:5173',
     'http://localhost:3000',
     'http://127.0.0.1:5173',
-    'http://127.0.0.1:3000'
+    'http://127.0.0.1:3000',
+    'https://galaxykicklock2.vercel.app',
+    'https://galaxykicklock2-galaxykicklocks-projects.vercel.app',
+    'https://galaxykicklock2-galaxykicklock77-galaxykicklocks-projects.vercel.app'
   ];
   
   const origin = req.headers.origin;
@@ -38,6 +41,10 @@ apiServer.use((req, res, next) => {
   }
   // Allow any loca.lt subdomain (for localtunnel)
   else if (origin && origin.match(/^https?:\/\/.*\.loca\.lt$/)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  // Allow any Vercel preview deployment for galaxykicklock2
+  else if (origin && origin.match(/^https:\/\/galaxykicklock2.*\.vercel\.app$/)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   }
   
