@@ -383,9 +383,14 @@ apiServer.post('/api/fly', (req, res) => {
 
 apiServer.post('/api/release', (req, res) => {
   try {
-    let released = 0;
-    let attempted = 0;
-    let errors = [];
+    // Track detailed status for each connection
+    const connectionStatus = {
+      inPrison: [],
+      notInPrison: [],
+      released: [],
+      failed: [],
+      noCode: []
+    };
 
     const promises = [];
 
@@ -402,18 +407,29 @@ apiServer.post('/api/release', (req, res) => {
         .some(key => logic.config[key] && logic.config[key].trim() !== '');
       
       if (!hasRC) {
-        errors.push(`Connection ${wsNum} has no recovery codes`);
+        connectionStatus.noCode.push(wsNum);
         addLog(wsNum, `⚠️ No recovery codes - cannot escape`);
         return;
       }
       
-      attempted++;
-      addLog(wsNum, `🔓 Attempting prison escape...`);
+      // Check if actually in prison
+      const currentPlanet = logic.currentPlanet || 'Unknown';
+      const isInPrison = logic.inPrison || (currentPlanet && currentPlanet.startsWith('Prison'));
+      
+      if (!isInPrison) {
+        connectionStatus.notInPrison.push({ id: wsNum, planet: currentPlanet });
+        addLog(wsNum, `✅ Already on planet: ${currentPlanet}`);
+        return;
+      }
+      
+      // In prison - attempt escape
+      connectionStatus.inPrison.push({ id: wsNum, planet: currentPlanet });
+      addLog(wsNum, `🔓 Attempting prison escape from ${currentPlanet}...`);
       
       const promise = logic.escapeWithCode(logic.config.rc1 || logic.config.rcl1, 'Manual')
         .then(success => {
           if (success) {
-            released++;
+            connectionStatus.released.push(wsNum);
             addLog(wsNum, `✅ Successfully escaped from prison!`);
             logic.inPrison = false;
             
@@ -430,14 +446,14 @@ apiServer.post('/api/release', (req, res) => {
             }
             return { wsNum, success: true };
           } else {
+            connectionStatus.failed.push(wsNum);
             addLog(wsNum, `❌ Escape failed`);
             return { wsNum, success: false };
           }
         })
         .catch(error => {
-          // SECURITY: Don't expose internal error details
           console.error(`[API] Escape error for WS${wsNum}:`, error.message);
-          errors.push(`Connection ${wsNum} failed`);
+          connectionStatus.failed.push(wsNum);
           addLog(wsNum, `❌ Escape error`);
           return { wsNum, success: false };
         });
@@ -447,23 +463,48 @@ apiServer.post('/api/release', (req, res) => {
 
     // Wait for all escape attempts to complete
     Promise.all(promises).then(results => {
-      console.log(`[API] Release complete: ${released}/${attempted} successful`);
+      console.log(`[API] Release complete:`, {
+        inPrison: connectionStatus.inPrison.length,
+        released: connectionStatus.released.length,
+        failed: connectionStatus.failed.length,
+        notInPrison: connectionStatus.notInPrison.length,
+        noCode: connectionStatus.noCode.length
+      });
     });
 
-    const response = {
-      success: attempted > 0,
-      message: attempted > 0 ? `Attempting to release ${attempted} connection(s)` : 'No connections to release',
-      attempted,
-      total: Object.keys(appState.gameLogic).length
-    };
+    // Build smart response message
+    let message = '';
+    const parts = [];
     
-    if (errors.length > 0 && errors.length < Object.keys(appState.gameLogic).length) {
-      response.partial = true;
+    if (connectionStatus.inPrison.length > 0) {
+      parts.push(`${connectionStatus.inPrison.length} in prison`);
     }
+    if (connectionStatus.notInPrison.length > 0) {
+      parts.push(`${connectionStatus.notInPrison.length} already free`);
+    }
+    if (connectionStatus.noCode.length > 0) {
+      parts.push(`${connectionStatus.noCode.length} missing codes`);
+    }
+    
+    if (parts.length > 0) {
+      message = parts.join(', ');
+    } else {
+      message = 'No connections available';
+    }
+
+    const response = {
+      success: connectionStatus.inPrison.length > 0,
+      message: message,
+      details: {
+        inPrison: connectionStatus.inPrison.length,
+        notInPrison: connectionStatus.notInPrison.length,
+        noCode: connectionStatus.noCode.length,
+        total: Object.keys(appState.gameLogic).length
+      }
+    };
     
     res.json(response);
   } catch (error) {
-    // SECURITY: Don't expose internal error details
     console.error('[API] /api/release error:', error.message);
     res.status(500).json({ 
       success: false, 
