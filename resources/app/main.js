@@ -147,11 +147,40 @@ apiServer.get('/api/status', (req, res) => {
   // SECURITY: Filter sensitive data before sending
   const safeConfig = filterSensitiveData(appState.config);
   
+  // Build prison status map for frontend
+  const prisonStatus = {};
+  Object.keys(appState.gameLogic).forEach(key => {
+    const logic = appState.gameLogic[key];
+    const wsNum = parseInt(key.replace('logic', ''));
+    
+    if (logic) {
+      // Determine which recovery code this connection is using
+      let codeKey = null;
+      if (logic.config.rc1 && wsNum === 1) codeKey = 'rc1';
+      else if (logic.config.rc2 && wsNum === 2) codeKey = 'rc2';
+      else if (logic.config.rc3 && wsNum === 3) codeKey = 'rc3';
+      else if (logic.config.rc4 && wsNum === 4) codeKey = 'rc4';
+      else if (logic.config.rc5 && wsNum === 5) codeKey = 'rc5';
+      else if (logic.config.rcl1 && wsNum === 1) codeKey = 'rcl1';
+      else if (logic.config.rcl2 && wsNum === 2) codeKey = 'rcl2';
+      else if (logic.config.rcl3 && wsNum === 3) codeKey = 'rcl3';
+      else if (logic.config.rcl4 && wsNum === 4) codeKey = 'rcl4';
+      else if (logic.config.rcl5 && wsNum === 5) codeKey = 'rcl5';
+      
+      if (codeKey) {
+        const currentPlanet = logic.currentPlanet || 'Unknown';
+        const isInPrison = logic.inPrison || (currentPlanet && currentPlanet.startsWith('Prison'));
+        prisonStatus[codeKey] = isInPrison;
+      }
+    }
+  });
+  
   const minimalState = {
     connected: appState.connected,
     wsStatus: appState.wsStatus,
     config: safeConfig, // ✅ Filtered - no recovery codes
-    gameState: appState.gameState
+    gameState: appState.gameState,
+    prisonStatus: prisonStatus // ✅ Added: { "rc1": true, "rc2": false, ... }
   };
   res.json(minimalState);
 });
@@ -391,6 +420,10 @@ apiServer.post('/api/release', (req, res) => {
       failed: [],
       noCode: []
     };
+    
+    // SECURITY: Map connection number to recovery code (redacted for security)
+    // Frontend needs to know which code is in prison
+    const prisonStatus = {}; // { "rc1": true/false, "rc2": true/false, ... }
 
     const promises = [];
 
@@ -402,12 +435,26 @@ apiServer.post('/api/release', (req, res) => {
         return;
       }
       
+      // Determine which recovery code this connection is using
+      let codeKey = null;
+      if (logic.config.rc1 && wsNum === 1) codeKey = 'rc1';
+      else if (logic.config.rc2 && wsNum === 2) codeKey = 'rc2';
+      else if (logic.config.rc3 && wsNum === 3) codeKey = 'rc3';
+      else if (logic.config.rc4 && wsNum === 4) codeKey = 'rc4';
+      else if (logic.config.rc5 && wsNum === 5) codeKey = 'rc5';
+      else if (logic.config.rcl1 && wsNum === 1) codeKey = 'rcl1';
+      else if (logic.config.rcl2 && wsNum === 2) codeKey = 'rcl2';
+      else if (logic.config.rcl3 && wsNum === 3) codeKey = 'rcl3';
+      else if (logic.config.rcl4 && wsNum === 4) codeKey = 'rcl4';
+      else if (logic.config.rcl5 && wsNum === 5) codeKey = 'rcl5';
+      
       // Check if any recovery codes are configured
       const hasRC = ['rc1', 'rc2', 'rc3', 'rc4', 'rc5', 'rcl1', 'rcl2', 'rcl3', 'rcl4', 'rcl5']
         .some(key => logic.config[key] && logic.config[key].trim() !== '');
       
       if (!hasRC) {
         connectionStatus.noCode.push(wsNum);
+        if (codeKey) prisonStatus[codeKey] = null; // No code configured
         addLog(wsNum, `⚠️ No recovery codes - cannot escape`);
         return;
       }
@@ -416,14 +463,19 @@ apiServer.post('/api/release', (req, res) => {
       const currentPlanet = logic.currentPlanet || 'Unknown';
       const isInPrison = logic.inPrison || (currentPlanet && currentPlanet.startsWith('Prison'));
       
+      // Update prison status for this code
+      if (codeKey) {
+        prisonStatus[codeKey] = isInPrison;
+      }
+      
       if (!isInPrison) {
-        connectionStatus.notInPrison.push({ id: wsNum, planet: currentPlanet });
+        connectionStatus.notInPrison.push({ id: wsNum, planet: currentPlanet, code: codeKey });
         addLog(wsNum, `✅ Already on planet: ${currentPlanet}`);
         return;
       }
       
       // In prison - attempt escape
-      connectionStatus.inPrison.push({ id: wsNum, planet: currentPlanet });
+      connectionStatus.inPrison.push({ id: wsNum, planet: currentPlanet, code: codeKey });
       addLog(wsNum, `🔓 Attempting prison escape from ${currentPlanet}...`);
       
       const promise = logic.escapeWithCode(logic.config.rc1 || logic.config.rcl1, 'Manual')
@@ -432,6 +484,11 @@ apiServer.post('/api/release', (req, res) => {
             connectionStatus.released.push(wsNum);
             addLog(wsNum, `✅ Successfully escaped from prison!`);
             logic.inPrison = false;
+            
+            // Update prison status after successful escape
+            if (codeKey) {
+              prisonStatus[codeKey] = false;
+            }
             
             // Rejoin target planet
             const ws = appState.websockets[`ws${wsNum}`];
@@ -500,7 +557,8 @@ apiServer.post('/api/release', (req, res) => {
         notInPrison: connectionStatus.notInPrison.length,
         noCode: connectionStatus.noCode.length,
         total: Object.keys(appState.gameLogic).length
-      }
+      },
+      prisonStatus: prisonStatus // ✅ Added: { "rc1": true, "rc2": false, ... }
     };
     
     res.json(response);
