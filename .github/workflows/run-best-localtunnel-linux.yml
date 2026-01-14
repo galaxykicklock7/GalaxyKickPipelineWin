@@ -50,7 +50,7 @@ on:
         default: '312'
         type: string
       duration:
-        description: 'Run duration in minutes (max 360 = 6 hours)'
+        description: 'Run duration in minutes (max 60 = 1 hour)'
         required: false
         default: '60'
         type: string
@@ -59,7 +59,7 @@ jobs:
   deploy-backend:
     name: 🚀 Deploy for ${{ github.event.inputs.subdomain }}
     runs-on: ubuntu-latest
-    timeout-minutes: 360  # Maximum 6 hours
+    timeout-minutes: 60  # Maximum 1 hour
 
     steps:
       - name: Checkout repository
@@ -118,6 +118,7 @@ jobs:
           HEADLESS: 'true'
           API_PORT: '3000'
           DISPLAY: ':99'
+          TUNNEL_SUBDOMAIN: '${{ github.event.inputs.subdomain }}'
         run: |
           echo "Starting virtual display (Xvfb)..."
           Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
@@ -317,8 +318,8 @@ jobs:
             -H "Content-Type: application/json" > /dev/null 2>&1; then
             echo "✅ Connection initiated"
             sleep 3
-            status=$(curl -s http://localhost:3000/api/status)
-            echo "Status: $status"
+            # SECURITY: Don't log full status (may contain sensitive data)
+            echo "✅ Connection status verified"
           else
             echo "⚠️  Connection failed"
           fi
@@ -372,8 +373,8 @@ jobs:
             duration=60
           fi
           
-          if [ "$duration" -gt 360 ]; then
-            duration=360
+          if [ "$duration" -gt 60 ]; then
+            duration=60
           fi
           
           subdomain="${{ github.event.inputs.subdomain }}"

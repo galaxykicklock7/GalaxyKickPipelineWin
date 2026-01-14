@@ -23,11 +23,15 @@ apiServer.use(bodyParser.json());
 
 // CORS Configuration
 apiServer.use((req, res, next) => {
+  // SECURITY: Strict whitelist - only specific domains allowed
   const allowedOrigins = [
+    // Local development
     'http://localhost:5173',
     'http://localhost:3000',
     'http://127.0.0.1:5173',
     'http://127.0.0.1:3000',
+    
+    // Production frontend (Vercel)
     'https://galaxykicklock2.vercel.app',
     'https://galaxykicklock2-galaxykicklocks-projects.vercel.app',
     'https://galaxykicklock2-galaxykicklock77-galaxykicklocks-projects.vercel.app'
@@ -35,30 +39,29 @@ apiServer.use((req, res, next) => {
   
   const origin = req.headers.origin;
   
-  // Allow specific localhost origins
+  // SECURITY: Only allow exact matches from whitelist
   if (allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   }
-  // Allow any loca.lt subdomain (for localtunnel)
-  else if (origin && origin.match(/^https?:\/\/.*\.loca\.lt$/)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
+  // SECURITY: Allow ONLY the user's specific loca.lt subdomain (set via env var)
+  else if (origin && process.env.TUNNEL_SUBDOMAIN) {
+    const allowedTunnelUrl = `https://${process.env.TUNNEL_SUBDOMAIN}.loca.lt`;
+    if (origin === allowedTunnelUrl) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+    } else {
+      // SECURITY: Reject unknown origins silently (no error details)
+      console.log(`⚠️ CORS blocked: ${origin}`);
+      return res.status(403).json({ error: 'Access denied' });
+    }
   }
-  // Allow any Vercel preview deployment for galaxykicklock2
-  else if (origin && origin.match(/^https:\/\/galaxykicklock2.*\.vercel\.app$/)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
+  // SECURITY: Reject all other origins
+  else if (origin) {
+    console.log(`⚠️ CORS blocked: ${origin}`);
+    return res.status(403).json({ error: 'Access denied' });
   }
   
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  
-  // Allow all headers that the browser requests
-  const requestedHeaders = req.headers['access-control-request-headers'];
-  if (requestedHeaders) {
-    res.setHeader('Access-Control-Allow-Headers', requestedHeaders);
-  } else {
-    // Fallback to common headers
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, bypass-tunnel-reminder, cache-control, x-requested-with, pragma, expires');
-  }
-  
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key, bypass-tunnel-reminder');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   
   // Handle preflight requests
@@ -73,79 +76,164 @@ apiServer.use(express.static(path.join(__dirname, 'public')));
 // Add support for serving the GUI in browser
 apiServer.use(express.static(path.join(__dirname)));
 
-// API Endpoints
+// ==================== SECURITY HELPERS ====================
+
+/**
+ * Sanitize config object by redacting sensitive fields
+ * @param {Object} config - Configuration object
+ * @returns {Object} - Sanitized config with redacted sensitive fields
+ */
+function sanitizeConfig(config) {
+  const safe = { ...config };
+  
+  // Redact recovery codes
+  if (safe.rc1) safe.rc1 = '***REDACTED***';
+  if (safe.rc2) safe.rc2 = '***REDACTED***';
+  if (safe.rc3) safe.rc3 = '***REDACTED***';
+  if (safe.rc4) safe.rc4 = '***REDACTED***';
+  if (safe.rc5) safe.rc5 = '***REDACTED***';
+  
+  // Redact alternate codes
+  if (safe.rcl1) safe.rcl1 = '***REDACTED***';
+  if (safe.rcl2) safe.rcl2 = '***REDACTED***';
+  if (safe.rcl3) safe.rcl3 = '***REDACTED***';
+  if (safe.rcl4) safe.rcl4 = '***REDACTED***';
+  if (safe.rcl5) safe.rcl5 = '***REDACTED***';
+  
+  // Redact kick recovery code
+  if (safe.kickrc) safe.kickrc = '***REDACTED***';
+  
+  return safe;
+}
+
+/**
+ * Remove sensitive fields from config object
+ * @param {Object} config - Configuration object
+ * @returns {Object} - Config without sensitive fields
+ */
+function filterSensitiveData(config) {
+  const filtered = { ...config };
+  
+  // Remove all recovery codes
+  delete filtered.rc1;
+  delete filtered.rc2;
+  delete filtered.rc3;
+  delete filtered.rc4;
+  delete filtered.rc5;
+  delete filtered.rcl1;
+  delete filtered.rcl2;
+  delete filtered.rcl3;
+  delete filtered.rcl4;
+  delete filtered.rcl5;
+  delete filtered.kickrc;
+  
+  return filtered;
+}
+
+// ==================== API ENDPOINTS ====================
 apiServer.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 apiServer.get('/api/status', (req, res) => {
-  // Return serializable state
+  // SECURITY: Filter sensitive data before sending
+  const safeConfig = filterSensitiveData(appState.config);
+  
   const minimalState = {
     connected: appState.connected,
     wsStatus: appState.wsStatus,
-    config: appState.config,
+    config: safeConfig, // ✅ Filtered - no recovery codes
     gameState: appState.gameState
   };
   res.json(minimalState);
 });
 
 apiServer.get('/api/logs', (req, res) => {
+  // SECURITY: Logs are safe (no sensitive data stored in logs)
+  // addLog() function only stores user-facing messages, not recovery codes
   res.json(appState.logs);
 });
 
 apiServer.post('/api/configure', (req, res) => {
-  const config = req.body;
+  try {
+    const config = req.body;
 
-  console.log('[API] /api/configure received:', JSON.stringify(config, null, 2));
-
-  // Update sensitive config keys (recovery codes)
-  if (config.rc1 !== undefined) appState.config.rc1 = config.rc1;
-  if (config.rc2 !== undefined) appState.config.rc2 = config.rc2;
-  if (config.rc3 !== undefined) appState.config.rc3 = config.rc3;
-  if (config.rc4 !== undefined) appState.config.rc4 = config.rc4;
-  if (config.rc5 !== undefined) appState.config.rc5 = config.rc5;
-
-  // Update alts
-  if (config.rcl1 !== undefined) appState.config.rcl1 = config.rcl1;
-  if (config.rcl2 !== undefined) appState.config.rcl2 = config.rcl2;
-  if (config.rcl3 !== undefined) appState.config.rcl3 = config.rcl3;
-  if (config.rcl4 !== undefined) appState.config.rcl4 = config.rcl4;
-  if (config.rcl5 !== undefined) appState.config.rcl5 = config.rcl5;
-
-  // Update kick recovery code (special case - starts with 'rc' but is not a recovery code)
-  if (config.kickrc !== undefined) appState.config.kickrc = config.kickrc;
-
-  // Update all other settings (excluding rc1-5 and rcl1-5)
-  Object.keys(config).forEach(key => {
-    // Skip recovery codes (rc1-5, rcl1-5) and kickrc (already handled above)
-    if (!key.match(/^rc[1-5]$/) && !key.match(/^rcl[1-5]$/) && key !== 'kickrc') {
-      appState.config[key] = config[key];
+    // SECURITY: Validate input exists
+    if (!config || typeof config !== 'object') {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid request' 
+      });
     }
-  });
 
-  // Log the updated config state for kick-related settings
-  console.log('[API] Updated config - Kick settings:', {
-    kickmode: appState.config.kickmode,
-    imprisonmode: appState.config.imprisonmode,
-    kickall: appState.config.kickall,
-    kickbybl: appState.config.kickbybl,
-    dadplus: appState.config.dadplus,
-    kickrc: appState.config.kickrc ? '***' : '(empty)'
-  });
+    // SECURITY: Log sanitized config (redact sensitive fields)
+    console.log('[API] /api/configure received:', JSON.stringify(sanitizeConfig(config), null, 2));
 
-  // Re-initialize pool
-  initializeConnectionPool();
+    // Update sensitive config keys (recovery codes)
+    if (config.rc1 !== undefined) appState.config.rc1 = config.rc1;
+    if (config.rc2 !== undefined) appState.config.rc2 = config.rc2;
+    if (config.rc3 !== undefined) appState.config.rc3 = config.rc3;
+    if (config.rc4 !== undefined) appState.config.rc4 = config.rc4;
+    if (config.rc5 !== undefined) appState.config.rc5 = config.rc5;
 
-  res.json({ success: true, message: 'Configuration updated' });
+    // Update alts
+    if (config.rcl1 !== undefined) appState.config.rcl1 = config.rcl1;
+    if (config.rcl2 !== undefined) appState.config.rcl2 = config.rcl2;
+    if (config.rcl3 !== undefined) appState.config.rcl3 = config.rcl3;
+    if (config.rcl4 !== undefined) appState.config.rcl4 = config.rcl4;
+    if (config.rcl5 !== undefined) appState.config.rcl5 = config.rcl5;
+
+    // Update kick recovery code (special case - starts with 'rc' but is not a recovery code)
+    if (config.kickrc !== undefined) appState.config.kickrc = config.kickrc;
+
+    // Update all other settings (excluding rc1-5 and rcl1-5)
+    Object.keys(config).forEach(key => {
+      // Skip recovery codes (rc1-5, rcl1-5) and kickrc (already handled above)
+      if (!key.match(/^rc[1-5]$/) && !key.match(/^rcl[1-5]$/) && key !== 'kickrc') {
+        appState.config[key] = config[key];
+      }
+    });
+
+    // SECURITY: Log sanitized kick settings (no recovery codes)
+    console.log('[API] Updated config - Kick settings:', {
+      kickmode: appState.config.kickmode,
+      imprisonmode: appState.config.imprisonmode,
+      kickall: appState.config.kickall,
+      kickbybl: appState.config.kickbybl,
+      dadplus: appState.config.dadplus,
+      kickrc: appState.config.kickrc ? '***REDACTED***' : '(empty)'
+    });
+
+    // Re-initialize pool
+    initializeConnectionPool();
+
+    res.json({ success: true, message: 'Configuration updated' });
+  } catch (error) {
+    // SECURITY: Don't expose internal error details
+    console.error('[API] /api/configure error:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Configuration failed' 
+    });
+  }
 });
 
 apiServer.post('/api/connect', (req, res) => {
-  appState.connected = true;
-  appState.config.connected = true;
-  appState.config.exitting = false; // "Standing" mode
+  try {
+    appState.connected = true;
+    appState.config.connected = true;
+    appState.config.exitting = false; // "Standing" mode
 
-  const connected = connectAll();
-  res.json({ success: true, count: connected });
+    const connected = connectAll();
+    res.json({ success: true, count: connected });
+  } catch (error) {
+    // SECURITY: Don't expose internal error details
+    console.error('[API] /api/connect error:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Connection failed' 
+    });
+  }
 });
 
 apiServer.post('/api/disconnect', (req, res) => {
@@ -154,194 +242,249 @@ apiServer.post('/api/disconnect', (req, res) => {
     appState.config.connected = false;
 
     disconnectAll();
-    res.json({ success: true, message: 'Disconnected all' });
+    res.json({ success: true, message: 'Disconnected' });
   } catch (error) {
-    console.error('Disconnect error:', error);
-    res.status(500).json({ success: false, message: 'Disconnect failed', error: error.message });
+    // SECURITY: Don't expose internal error details
+    console.error('[API] /api/disconnect error:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Disconnect failed' 
+    });
   }
 });
 
 apiServer.post('/api/send', (req, res) => {
-  const { wsNumber, command } = req.body;
-  if (!wsNumber || !command) {
-    return res.status(400).json({ success: false, message: 'wsNumber and command required' });
-  }
+  try {
+    const { wsNumber, command } = req.body;
+    
+    // SECURITY: Validate input
+    if (!wsNumber || !command) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid request' 
+      });
+    }
 
-  const wsKey = `ws${wsNumber}`;
-  const ws = appState.websockets[wsKey];
-  
-  if (!ws || ws.readyState !== ws.OPEN) {
-    return res.status(400).json({ success: false, message: `WebSocket ${wsNumber} not connected` });
-  }
+    const wsKey = `ws${wsNumber}`;
+    const ws = appState.websockets[wsKey];
+    
+    if (!ws || ws.readyState !== ws.OPEN) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Connection not available' 
+      });
+    }
 
-  ws.send(`${command}\r\n`);
-  addLog(wsNumber, `📤 Sent: ${command}`);
-  res.json({ success: true, message: `Command sent to WS${wsNumber}` });
+    ws.send(`${command}\r\n`);
+    addLog(wsNumber, `📤 Sent: ${command}`);
+    res.json({ success: true, message: 'Command sent' });
+  } catch (error) {
+    // SECURITY: Don't expose internal error details
+    console.error('[API] /api/send error:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Command failed' 
+    });
+  }
 });
 
 apiServer.post('/api/fly', (req, res) => {
-  console.log('[API] /api/fly called with body:', req.body);
-  
-  const { planet } = req.body;
-  if (!planet) {
-    return res.status(400).json({ success: false, message: 'planet required' });
-  }
-
-  // Update config planet for all connections
-  appState.config.planet = planet;
-  
-  let sent = 0;
-  let errors = [];
-  let reflown = 0; // Count of connections already on the same planet
-
-  console.log('[API] Processing websockets:', Object.keys(appState.websockets));
-
-  Object.keys(appState.websockets).forEach(key => {
-    try {
-      const ws = appState.websockets[key];
-      const wsNum = parseInt(key.replace('ws', ''));
-      
-      console.log(`[API] Processing ${key}: ws=${!!ws}, readyState=${ws?.readyState}`);
-      
-      if (!ws) {
-        errors.push(`WS${wsNum}: Not initialized`);
-        return;
-      }
-      
-      if (ws.readyState !== ws.OPEN) {
-        errors.push(`WS${wsNum}: Not connected (state: ${ws.readyState})`);
-        return;
-      }
-      
-      // Check if already on the same planet
-      const logicKey = `logic${wsNum}`;
-      const currentPlanet = appState.gameLogic[logicKey]?.currentPlanet;
-      const isRefly = currentPlanet === planet;
-      
-      console.log(`[API] WS${wsNum}: currentPlanet=${currentPlanet}, isRefly=${isRefly}`);
-      
-      if (isRefly) {
-        reflown++;
-        addLog(wsNum, `🔄 Reflying to ${planet} (already there)`);
-      } else {
-        addLog(wsNum, `🚀 Flying to ${planet}${currentPlanet ? ` (from ${currentPlanet})` : ''}`);
-      }
-      
-      // Send JOIN command (works for both new planet and refly)
-      // IRC protocol: JOIN automatically parts from current channel if different
-      ws.send(`JOIN ${planet}\r\n`);
-      console.log(`[API] WS${wsNum}: Sent JOIN ${planet}`);
-      sent++;
-      
-      // Update gameLogic planet tracking
-      if (appState.gameLogic[logicKey]) {
-        appState.gameLogic[logicKey].currentPlanet = planet;
-        appState.gameLogic[logicKey].inPrison = planet.startsWith('Prison');
-      }
-    } catch (error) {
-      const wsNum = key.replace('ws', '');
-      console.error(`[API] Error processing ${key}:`, error);
-      errors.push(`WS${wsNum}: ${error.message}`);
+  try {
+    console.log('[API] /api/fly called');
+    
+    const { planet } = req.body;
+    
+    // SECURITY: Validate input
+    if (!planet) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid request' 
+      });
     }
-  });
 
-  const response = {
-    success: sent > 0,
-    message: `Sent JOIN to ${sent} connection(s)${reflown > 0 ? ` (${reflown} refly)` : ''}`,
-    planet,
-    sent,
-    reflown,
-    total: Object.keys(appState.websockets).length
-  };
-  
-  if (errors.length > 0) {
-    response.errors = errors;
+    // Update config planet for all connections
+    appState.config.planet = planet;
+    
+    let sent = 0;
+    let errors = [];
+    let reflown = 0;
+
+    Object.keys(appState.websockets).forEach(key => {
+      try {
+        const ws = appState.websockets[key];
+        const wsNum = parseInt(key.replace('ws', ''));
+        
+        if (!ws) {
+          errors.push(`Connection ${wsNum} not initialized`);
+          return;
+        }
+        
+        if (ws.readyState !== ws.OPEN) {
+          errors.push(`Connection ${wsNum} not ready`);
+          return;
+        }
+        
+        // Check if already on the same planet
+        const logicKey = `logic${wsNum}`;
+        const currentPlanet = appState.gameLogic[logicKey]?.currentPlanet;
+        const isRefly = currentPlanet === planet;
+        
+        if (isRefly) {
+          reflown++;
+          addLog(wsNum, `🔄 Reflying to ${planet}`);
+        } else {
+          addLog(wsNum, `🚀 Flying to ${planet}`);
+        }
+        
+        ws.send(`JOIN ${planet}\r\n`);
+        sent++;
+        
+        // Update gameLogic planet tracking
+        if (appState.gameLogic[logicKey]) {
+          appState.gameLogic[logicKey].currentPlanet = planet;
+          appState.gameLogic[logicKey].inPrison = planet.startsWith('Prison');
+        }
+      } catch (error) {
+        // SECURITY: Don't expose internal error details
+        console.error(`[API] Error processing ${key}:`, error.message);
+        errors.push(`Connection ${key.replace('ws', '')} failed`);
+      }
+    });
+
+    const response = {
+      success: sent > 0,
+      message: sent > 0 ? `Sent to ${sent} connection(s)` : 'No connections available',
+      sent,
+      total: Object.keys(appState.websockets).length
+    };
+    
+    if (errors.length > 0 && errors.length < Object.keys(appState.websockets).length) {
+      response.partial = true;
+    }
+    
+    res.json(response);
+  } catch (error) {
+    // SECURITY: Don't expose internal error details
+    console.error('[API] /api/fly error:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Operation failed' 
+    });
   }
-  
-  console.log('[API] /api/fly response:', response);
-  res.json(response);
 });
 
 apiServer.post('/api/release', (req, res) => {
-  let released = 0;
-  let attempted = 0;
-  let errors = [];
+  try {
+    let released = 0;
+    let attempted = 0;
+    let errors = [];
 
-  const promises = [];
+    const promises = [];
 
-  Object.keys(appState.gameLogic).forEach(key => {
-    const logic = appState.gameLogic[key];
-    const wsNum = parseInt(key.replace('logic', ''));
-    
-    if (!logic) {
-      return;
-    }
-    
-    // Check if any recovery codes are configured
-    const hasRC = ['rc1', 'rc2', 'rc3', 'rc4', 'rc5', 'rcl1', 'rcl2', 'rcl3', 'rcl4', 'rcl5']
-      .some(key => logic.config[key] && logic.config[key].trim() !== '');
-    
-    if (!hasRC) {
-      errors.push(`WS${wsNum}: No recovery codes configured`);
-      addLog(wsNum, `⚠️ No recovery codes - cannot escape`);
-      return;
-    }
-    
-    attempted++;
-    addLog(wsNum, `🔓 Attempting prison escape (manual)...`);
-    console.log(`[API] WS${wsNum}: Attempting manual escape (inPrison=${logic.inPrison})`);
-    
-    // Force escape attempt regardless of inPrison flag (manual release)
-    const promise = logic.escapeWithCode(logic.config.rc1 || logic.config.rcl1, 'Manual')
-      .then(success => {
-        if (success) {
-          released++;
-          addLog(wsNum, `✅ Successfully escaped from prison!`);
-          logic.inPrison = false; // Update flag
-          
-          // Rejoin target planet
-          const ws = appState.websockets[`ws${wsNum}`];
-          const targetPlanet = logic.config.planet;
-          if (targetPlanet && ws && ws.readyState === ws.OPEN) {
-            setTimeout(() => {
-              if (ws.readyState === ws.OPEN) {
-                ws.send(`JOIN ${targetPlanet}\r\n`);
-                addLog(wsNum, `🔄 Rejoining ${targetPlanet}`);
-              }
-            }, 3000);
+    Object.keys(appState.gameLogic).forEach(key => {
+      const logic = appState.gameLogic[key];
+      const wsNum = parseInt(key.replace('logic', ''));
+      
+      if (!logic) {
+        return;
+      }
+      
+      // Check if any recovery codes are configured
+      const hasRC = ['rc1', 'rc2', 'rc3', 'rc4', 'rc5', 'rcl1', 'rcl2', 'rcl3', 'rcl4', 'rcl5']
+        .some(key => logic.config[key] && logic.config[key].trim() !== '');
+      
+      if (!hasRC) {
+        errors.push(`Connection ${wsNum} has no recovery codes`);
+        addLog(wsNum, `⚠️ No recovery codes - cannot escape`);
+        return;
+      }
+      
+      attempted++;
+      addLog(wsNum, `🔓 Attempting prison escape...`);
+      
+      const promise = logic.escapeWithCode(logic.config.rc1 || logic.config.rcl1, 'Manual')
+        .then(success => {
+          if (success) {
+            released++;
+            addLog(wsNum, `✅ Successfully escaped from prison!`);
+            logic.inPrison = false;
+            
+            // Rejoin target planet
+            const ws = appState.websockets[`ws${wsNum}`];
+            const targetPlanet = logic.config.planet;
+            if (targetPlanet && ws && ws.readyState === ws.OPEN) {
+              setTimeout(() => {
+                if (ws.readyState === ws.OPEN) {
+                  ws.send(`JOIN ${targetPlanet}\r\n`);
+                  addLog(wsNum, `🔄 Rejoining ${targetPlanet}`);
+                }
+              }, 3000);
+            }
+            return { wsNum, success: true };
+          } else {
+            addLog(wsNum, `❌ Escape failed`);
+            return { wsNum, success: false };
           }
-          return { wsNum, success: true };
-        } else {
-          addLog(wsNum, `❌ Escape failed - code invalid or not in prison`);
+        })
+        .catch(error => {
+          // SECURITY: Don't expose internal error details
+          console.error(`[API] Escape error for WS${wsNum}:`, error.message);
+          errors.push(`Connection ${wsNum} failed`);
+          addLog(wsNum, `❌ Escape error`);
           return { wsNum, success: false };
-        }
-      })
-      .catch(error => {
-        errors.push(`WS${wsNum}: ${error.message}`);
-        addLog(wsNum, `❌ Escape error: ${error.message}`);
-        return { wsNum, success: false, error: error.message };
-      });
+        });
+      
+      promises.push(promise);
+    });
+
+    // Wait for all escape attempts to complete
+    Promise.all(promises).then(results => {
+      console.log(`[API] Release complete: ${released}/${attempted} successful`);
+    });
+
+    const response = {
+      success: attempted > 0,
+      message: attempted > 0 ? `Attempting to release ${attempted} connection(s)` : 'No connections to release',
+      attempted,
+      total: Object.keys(appState.gameLogic).length
+    };
     
-    promises.push(promise);
-  });
-
-  // Wait for all escape attempts to complete
-  Promise.all(promises).then(results => {
-    console.log(`[API] Release complete: ${released}/${attempted} successful`);
-  });
-
-  const response = {
-    success: attempted > 0,
-    message: `Attempting to release ${attempted} account(s) from prison`,
-    attempted,
-    total: Object.keys(appState.gameLogic).length
-  };
-  
-  if (errors.length > 0) {
-    response.errors = errors;
+    if (errors.length > 0 && errors.length < Object.keys(appState.gameLogic).length) {
+      response.partial = true;
+    }
+    
+    res.json(response);
+  } catch (error) {
+    // SECURITY: Don't expose internal error details
+    console.error('[API] /api/release error:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Operation failed' 
+    });
   }
+});
+
+// ==================== GLOBAL ERROR HANDLERS ====================
+
+// SECURITY: Catch all unhandled errors and return generic message
+apiServer.use((err, req, res, next) => {
+  // Log error internally (with details)
+  console.error('[API] Unhandled error:', err.message);
+  console.error('[API] Stack:', err.stack);
   
-  res.json(response);
+  // SECURITY: Return generic error to client (no details)
+  res.status(500).json({
+    success: false,
+    message: 'Internal server error'
+  });
+});
+
+// SECURITY: Handle 404 for unknown routes
+apiServer.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: 'Not found'
+  });
 });
 
 // Helper: Connect All

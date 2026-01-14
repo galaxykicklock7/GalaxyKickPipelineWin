@@ -223,6 +223,11 @@ class GameLogic {
         
         // Reset bot gang detection on disconnect
         this.botGangName = null;
+        
+        // MEMORY LEAK FIX: Clear cooldown tracking objects
+        this.attackCooldowns = {};
+        this.userAppearanceTime = {};
+        this.attackedThisSession.clear();
 
         if (this.timeout) { clearTimeout(this.timeout); this.timeout = null; }
         if (this.reconnectTimeoutId) { clearTimeout(this.reconnectTimeoutId); this.reconnectTimeoutId = null; }
@@ -342,6 +347,16 @@ class GameLogic {
     markTargetAttacked(userid) {
         this.attackCooldowns[userid] = Date.now();
         this.attackedThisSession.add(userid);
+        
+        // MEMORY OPTIMIZATION: Cleanup old cooldowns (older than 10 seconds)
+        const now = Date.now();
+        const maxAge = 10000; // 10 seconds
+        Object.keys(this.attackCooldowns).forEach(id => {
+            if (now - this.attackCooldowns[id] > maxAge) {
+                delete this.attackCooldowns[id];
+                delete this.userAppearanceTime[id];
+            }
+        });
     }
 
     isOnCooldown(userid) {
@@ -568,7 +583,9 @@ class GameLogic {
             console.log(`[WS${this.wsNumber}] 353 BAN - Found ${integers.length} user IDs`);
             console.log(`[WS${this.wsNumber}] 353 BAN - Self ID: ${this.useridg}, Founder ID: ${this.founderUserId || 'NONE'}`);
             
-            const usersToBan = [];
+            // PERFORMANCE FIX: Use Set for O(1) deduplication instead of array.find()
+            const usersToBanSet = new Set();
+            const usersToBanMap = new Map(); // userid -> {username, reason}
             
             // OPTION 1: Check "Everyone" mode - ban all users
             if (this.config.kickall) {
@@ -595,8 +612,10 @@ class GameLogic {
                         // Skip if username is also numeric
                         if (!isNaN(username)) return;
                         
-                        if (!usersToBan.find(u => u.userid === userid)) {
-                            usersToBan.push({ userid, username, reason: 'everyone' });
+                        // PERFORMANCE FIX: Use Set instead of array.find()
+                        if (!usersToBanSet.has(userid)) {
+                            usersToBanSet.add(userid);
+                            usersToBanMap.set(userid, { username, reason: 'everyone' });
                             console.log(`[WS${this.wsNumber}] 353 BAN mode - Added user to ban (everyone): ${username} (${userid})`);
                         }
                     }
@@ -606,6 +625,8 @@ class GameLogic {
             // OPTION 2: Check "By Blacklist" mode (only if Everyone is not enabled)
             else if (this.config.kickbybl) {
                 const data = text.replaceAll("+", "").toLowerCase();
+                
+                // PERFORMANCE FIX: Cache split results instead of splitting in loop
                 const kblacklist = (this.config.kblacklist || "").toLowerCase().split("\n").filter(k => k.trim());
                 const kgangblacklist = (this.config.kgangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
                 
@@ -629,8 +650,9 @@ class GameLogic {
                             } else if (userid === this.founderUserId) {
                                 console.log(`[WS${this.wsNumber}] 353 BAN mode - Skipping founder: ${userid}`);
                                 this.addLog(this.wsNumber, `👑 Skipping BAN for planet owner: ${element}`);
-                            } else if (userid && !usersToBan.find(u => u.userid === userid)) {
-                                usersToBan.push({ userid, username: element, reason: `kblacklist: ${element}` });
+                            } else if (userid && !usersToBanSet.has(userid)) {
+                                usersToBanSet.add(userid);
+                                usersToBanMap.set(userid, { username: element, reason: `kblacklist: ${element}` });
                                 console.log(`[WS${this.wsNumber}] 353 BAN mode - Found user to ban: ${element} (${userid})`);
                             }
                         }
@@ -669,8 +691,9 @@ class GameLogic {
                             } else if (userid === this.founderUserId) {
                                 console.log(`[WS${this.wsNumber}] 353 BAN mode - Skipping founder: ${userid}`);
                                 this.addLog(this.wsNumber, `👑 Skipping BAN for planet owner in gang: ${username}`);
-                            } else if (username && userid && !usersToBan.find(u => u.userid === userid)) {
-                                usersToBan.push({ userid, username, reason: `kgangblacklist: ${element}` });
+                            } else if (username && userid && !usersToBanSet.has(userid)) {
+                                usersToBanSet.add(userid);
+                                usersToBanMap.set(userid, { username, reason: `kgangblacklist: ${element}` });
                                 console.log(`[WS${this.wsNumber}] 353 BAN mode - Found gang member to ban: ${username} (${userid})`);
                             }
                         }
@@ -694,7 +717,13 @@ class GameLogic {
                 });
             }
             
-            // Ban all matched users
+            // Ban all matched users (convert Set back to array)
+            const usersToBan = Array.from(usersToBanSet).map(userid => ({
+                userid,
+                username: usersToBanMap.get(userid).username,
+                reason: usersToBanMap.get(userid).reason
+            }));
+            
             if (usersToBan.length > 0) {
                 console.log(`[WS${this.wsNumber}] 353 BAN mode - Banning ${usersToBan.length} user(s)`);
                 this.addLog(this.wsNumber, `🚫 Found ${usersToBan.length} user(s) to ban`);
@@ -750,7 +779,9 @@ class GameLogic {
             console.log(`[WS${this.wsNumber}] 353 - Found ${integers.length} user IDs: [${integers.join(', ')}]`);
             console.log(`[WS${this.wsNumber}] 353 - Self ID: ${this.useridg}, Founder ID: ${this.founderUserId || 'NONE'}`);
             
-            const usersToAct = [];
+            // PERFORMANCE FIX: Use Set for O(1) deduplication instead of array.find()
+            const usersToActSet = new Set();
+            const usersToActMap = new Map(); // userid -> {username, reason}
             
             // OPTION 1: Check "Everyone" mode - kick/imprison all users
             if (this.config.kickall) {
@@ -777,8 +808,10 @@ class GameLogic {
                         // Skip if username is also numeric (means it's not a username)
                         if (!isNaN(username)) return;
                         
-                        if (!usersToAct.find(u => u.userid === userid)) {
-                            usersToAct.push({ userid, username, reason: 'everyone' });
+                        // PERFORMANCE FIX: Use Set instead of array.find()
+                        if (!usersToActSet.has(userid)) {
+                            usersToActSet.add(userid);
+                            usersToActMap.set(userid, { username, reason: 'everyone' });
                             console.log(`[WS${this.wsNumber}] 353 ${actionType} mode - Added user (everyone): ${username} (${userid})`);
                         }
                     }
@@ -791,6 +824,7 @@ class GameLogic {
                 
                 if (isKickMode) {
                     // KICK MODE: Use kblacklist and kgangblacklist
+                    // PERFORMANCE FIX: Cache split results
                     const kblacklist = (this.config.kblacklist || "").toLowerCase().split("\n").filter(k => k.trim());
                     const kgangblacklist = (this.config.kgangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
                     
@@ -813,8 +847,9 @@ class GameLogic {
                                 } else if (userid === this.founderUserId) {
                                     console.log(`[WS${this.wsNumber}] 353 Kick mode - Skipping founder: ${userid}`);
                                     this.addLog(this.wsNumber, `👑 Skipping kick for planet owner: ${element}`);
-                                } else if (userid && !usersToAct.find(u => u.userid === userid)) {
-                                    usersToAct.push({ userid, username: element, reason: `kblacklist: ${element}` });
+                                } else if (userid && !usersToActSet.has(userid)) {
+                                    usersToActSet.add(userid);
+                                    usersToActMap.set(userid, { username: element, reason: `kblacklist: ${element}` });
                                     console.log(`[WS${this.wsNumber}] 353 Kick mode - Found user to kick: ${element} (${userid})`);
                                 }
                             }
@@ -854,8 +889,9 @@ class GameLogic {
                                 } else if (userid === this.founderUserId) {
                                     console.log(`[WS${this.wsNumber}] 353 Kick mode - Skipping founder: ${userid}`);
                                     this.addLog(this.wsNumber, `👑 Skipping kick for planet owner in gang: ${username}`);
-                                } else if (username && userid && !usersToAct.find(u => u.userid === userid)) {
-                                    usersToAct.push({ userid, username, reason: `kgangblacklist: ${element}` });
+                                } else if (username && userid && !usersToActSet.has(userid)) {
+                                    usersToActSet.add(userid);
+                                    usersToActMap.set(userid, { username, reason: `kgangblacklist: ${element}` });
                                     console.log(`[WS${this.wsNumber}] 353 Kick mode - Found gang member to kick: ${username} (${userid})`);
                                 }
                             }
@@ -865,6 +901,7 @@ class GameLogic {
                     });
                 } else {
                     // IMPRISON MODE: Use blacklist and gangblacklist
+                    // PERFORMANCE FIX: Cache split results
                     const blacklist = (this.config.blacklist || "").toLowerCase().split("\n").filter(b => b.trim());
                     const gangblacklist = (this.config.gangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
                     
@@ -887,8 +924,9 @@ class GameLogic {
                                 } else if (userid === this.founderUserId) {
                                     console.log(`[WS${this.wsNumber}] 353 Imprison mode - Skipping founder: ${userid}`);
                                     this.addLog(this.wsNumber, `👑 Skipping imprison for planet owner: ${element}`);
-                                } else if (userid && !usersToAct.find(u => u.userid === userid)) {
-                                    usersToAct.push({ userid, username: element, reason: `blacklist: ${element}` });
+                                } else if (userid && !usersToActSet.has(userid)) {
+                                    usersToActSet.add(userid);
+                                    usersToActMap.set(userid, { username: element, reason: `blacklist: ${element}` });
                                     console.log(`[WS${this.wsNumber}] 353 Imprison mode - Found user to imprison: ${element} (${userid})`);
                                 }
                             }
@@ -928,8 +966,9 @@ class GameLogic {
                                 } else if (userid === this.founderUserId) {
                                     console.log(`[WS${this.wsNumber}] 353 Imprison mode - Skipping founder: ${userid}`);
                                     this.addLog(this.wsNumber, `👑 Skipping imprison for planet owner in gang: ${username}`);
-                                } else if (username && userid && !usersToAct.find(u => u.userid === userid)) {
-                                    usersToAct.push({ userid, username, reason: `gangblacklist: ${element}` });
+                                } else if (username && userid && !usersToActSet.has(userid)) {
+                                    usersToActSet.add(userid);
+                                    usersToActMap.set(userid, { username, reason: `gangblacklist: ${element}` });
                                     console.log(`[WS${this.wsNumber}] 353 Imprison mode - Found gang member to imprison: ${username} (${userid})`);
                                 }
                             }
@@ -955,7 +994,13 @@ class GameLogic {
                 });
             }
             
-            // Execute actions for matched users
+            // Execute actions for matched users (convert Set back to array)
+            const usersToAct = Array.from(usersToActSet).map(userid => ({
+                userid,
+                username: usersToActMap.get(userid).username,
+                reason: usersToActMap.get(userid).reason
+            }));
+            
             if (usersToAct.length > 0) {
                 // KICK mode: No timing delay (immediate)
                 // IMPRISON mode: Use attack timing
