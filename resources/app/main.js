@@ -468,15 +468,22 @@ apiServer.post('/api/release', (req, res) => {
         prisonStatus[codeKey] = isInPrison;
       }
       
-      if (!isInPrison) {
+      // If currentPlanet is unknown (connection just established), attempt escape anyway
+      // The escape will fail gracefully if not in prison
+      if (!isInPrison && currentPlanet !== 'Unknown') {
         connectionStatus.notInPrison.push({ id: wsNum, planet: currentPlanet, code: codeKey });
         addLog(wsNum, `✅ Already on planet: ${currentPlanet}`);
         return;
       }
       
-      // In prison - attempt escape
-      connectionStatus.inPrison.push({ id: wsNum, planet: currentPlanet, code: codeKey });
-      addLog(wsNum, `🔓 Attempting prison escape from ${currentPlanet}...`);
+      // In prison OR unknown status - attempt escape
+      if (currentPlanet === 'Unknown') {
+        connectionStatus.inPrison.push({ id: wsNum, planet: 'Unknown (checking...)', code: codeKey });
+        addLog(wsNum, `🔓 Attempting escape (location unknown)...`);
+      } else {
+        connectionStatus.inPrison.push({ id: wsNum, planet: currentPlanet, code: codeKey });
+        addLog(wsNum, `🔓 Attempting prison escape from ${currentPlanet}...`);
+      }
       
       const promise = logic.escapeWithCode(logic.config.rc1 || logic.config.rcl1, 'Manual')
         .then(success => {
