@@ -634,16 +634,27 @@ class GameLogic {
             else if (this.config.kickbybl) {
                 const data = text.replaceAll("+", "").toLowerCase();
                 
-                // PERFORMANCE FIX: Cache split results instead of splitting in loop
+                // BAN + Blacklist mode: Check ALL blacklists (kick + imprison)
+                // Load all four blacklist types
                 const kblacklist = (this.config.kblacklist || "").toLowerCase().split("\n").filter(k => k.trim());
                 const kgangblacklist = (this.config.kgangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+                const blacklist = (this.config.blacklist || "").toLowerCase().split("\n").filter(b => b.trim());
+                const gangblacklist = (this.config.gangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
                 
-                console.log(`[WS${this.wsNumber}] 353 BAN mode - Kick Blacklist Users: [${kblacklist.join(', ')}]`);
-                console.log(`[WS${this.wsNumber}] 353 BAN mode - Kick Blacklist Clans: [${kgangblacklist.join(', ')}]`);
+                // Merge all username blacklists
+                const allUserBlacklists = [...kblacklist, ...blacklist];
+                // Merge all gang blacklists
+                const allGangBlacklists = [...kgangblacklist, ...gangblacklist];
+                
+                console.log(`[WS${this.wsNumber}] 353 BAN mode - Checking ALL blacklists:`);
+                console.log(`[WS${this.wsNumber}]   - Kick Blacklist Users: [${kblacklist.join(', ')}]`);
+                console.log(`[WS${this.wsNumber}]   - Kick Blacklist Clans: [${kgangblacklist.join(', ')}]`);
+                console.log(`[WS${this.wsNumber}]   - Imprison Blacklist Users: [${blacklist.join(', ')}]`);
+                console.log(`[WS${this.wsNumber}]   - Imprison Blacklist Clans: [${gangblacklist.join(', ')}]`);
                 console.log(`[WS${this.wsNumber}] 353 BAN mode - Data: ${data.substring(0, 200)}...`);
                 
-                // Process username blacklist
-                kblacklist.forEach((element) => {
+                // Process ALL username blacklists (kick + imprison)
+                allUserBlacklists.forEach((element) => {
                     if (element && data.includes(element)) {
                         console.log(`[WS${this.wsNumber}] 353 BAN mode - Found username match: ${element}`);
                         const replace = element + " ";
@@ -660,15 +671,15 @@ class GameLogic {
                                 this.addLog(this.wsNumber, `👑 Skipping BAN for planet owner: ${element}`);
                             } else if (userid && !usersToBanSet.has(userid)) {
                                 usersToBanSet.add(userid);
-                                usersToBanMap.set(userid, { username: element, reason: `kblacklist: ${element}` });
+                                usersToBanMap.set(userid, { username: element, reason: `blacklist: ${element}` });
                                 console.log(`[WS${this.wsNumber}] 353 BAN mode - Found user to ban: ${element} (${userid})`);
                             }
                         }
                     }
                 });
                 
-                // Process gang blacklist
-                kgangblacklist.forEach((element) => {
+                // Process ALL gang blacklists (kick + imprison)
+                allGangBlacklists.forEach((element) => {
                     console.log(`[WS${this.wsNumber}] 353 BAN mode - Checking gang: "${element}"`);
                     
                     // Skip if this is bot's own gang
@@ -701,7 +712,7 @@ class GameLogic {
                                 this.addLog(this.wsNumber, `👑 Skipping BAN for planet owner in gang: ${username}`);
                             } else if (username && userid && !usersToBanSet.has(userid)) {
                                 usersToBanSet.add(userid);
-                                usersToBanMap.set(userid, { username, reason: `kgangblacklist: ${element}` });
+                                usersToBanMap.set(userid, { username, reason: `gangblacklist: ${element}` });
                                 console.log(`[WS${this.wsNumber}] 353 BAN mode - Found gang member to ban: ${username} (${userid})`);
                             }
                         }
@@ -1608,31 +1619,42 @@ class GameLogic {
                 console.log(`[WS${this.wsNumber}] BAN mode - Everyone mode active, banning all users`);
             }
             
-            // Check "By Blacklist" mode
+            // Check "By Blacklist" mode - Check ALL blacklists (kick + imprison)
             if (!shouldBan && this.config.kickbybl) {
+                // Load all four blacklist types
                 const kblacklist = (this.config.kblacklist || "").toLowerCase().split("\n").filter(k => k.trim());
                 const kgangblacklist = (this.config.kgangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+                const blacklist = (this.config.blacklist || "").toLowerCase().split("\n").filter(b => b.trim());
+                const gangblacklist = (this.config.gangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
                 
-                console.log(`[WS${this.wsNumber}] BAN mode - Kick Blacklist Users: [${kblacklist.join(', ')}]`);
-                console.log(`[WS${this.wsNumber}] BAN mode - Kick Blacklist Clans: [${kgangblacklist.join(', ')}]`);
+                // Merge all username blacklists
+                const allUserBlacklists = [...kblacklist, ...blacklist];
+                // Merge all gang blacklists
+                const allGangBlacklists = [...kgangblacklist, ...gangblacklist];
                 
-                // Check kblacklist
-                for (const blocked of kblacklist) {
+                console.log(`[WS${this.wsNumber}] BAN mode - Checking ALL blacklists:`);
+                console.log(`[WS${this.wsNumber}]   - Kick Blacklist Users: [${kblacklist.join(', ')}]`);
+                console.log(`[WS${this.wsNumber}]   - Kick Blacklist Clans: [${kgangblacklist.join(', ')}]`);
+                console.log(`[WS${this.wsNumber}]   - Imprison Blacklist Users: [${blacklist.join(', ')}]`);
+                console.log(`[WS${this.wsNumber}]   - Imprison Blacklist Clans: [${gangblacklist.join(', ')}]`);
+                
+                // Check ALL username blacklists (kick + imprison)
+                for (const blocked of allUserBlacklists) {
                     if (blocked && username.includes(blocked)) {
                         shouldBan = true;
-                        reason = `kblacklist: ${blocked}`;
-                        console.log(`[WS${this.wsNumber}] BAN mode - MATCH in kblacklist: ${blocked}`);
+                        reason = `blacklist: ${blocked}`;
+                        console.log(`[WS${this.wsNumber}] BAN mode - MATCH in blacklist: ${blocked}`);
                         break;
                     }
                 }
                 
-                // Check kgangblacklist
+                // Check ALL gang blacklists (kick + imprison)
                 if (!shouldBan) {
-                    for (const gang of kgangblacklist) {
+                    for (const gang of allGangBlacklists) {
                         if (gang && username.includes(gang)) {
                             shouldBan = true;
-                            reason = `kgangblacklist: ${gang}`;
-                            console.log(`[WS${this.wsNumber}] BAN mode - MATCH in kgangblacklist: ${gang}`);
+                            reason = `gangblacklist: ${gang}`;
+                            console.log(`[WS${this.wsNumber}] BAN mode - MATCH in gangblacklist: ${gang}`);
                             break;
                         }
                     }
