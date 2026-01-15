@@ -151,15 +151,6 @@ jobs:
           
           echo "✅ WARP ready (will start after LocalTunnel)"
           echo "=========================================="
-            echo ""
-            
-            echo "WARP_CONNECTED=true" >> $GITHUB_ENV
-            echo "WARP_IP=$external_ip" >> $GITHUB_ENV
-            echo "WARP_LOCATION=$city, $country" >> $GITHUB_ENV
-          else
-            echo "✅ WARP connected (IP check failed)"
-            echo "WARP_CONNECTED=true" >> $GITHUB_ENV
-          fi
 
       - name: Install system dependencies
         run: |
