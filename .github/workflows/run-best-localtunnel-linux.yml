@@ -113,10 +113,10 @@ jobs:
           echo "✅ WireGuard tools installed"
           echo "=========================================="
 
-      - name: Connect to Cloudflare WARP
+      - name: Register with Cloudflare WARP (Don't start yet)
         run: |
           echo "=========================================="
-          echo "🔒 Connecting to Cloudflare WARP"
+          echo "🔒 Registering with Cloudflare WARP"
           echo "=========================================="
           
           # Check if wgcf is installed
@@ -149,55 +149,8 @@ jobs:
           # Move config to WireGuard directory
           sudo mv wgcf-profile.conf /etc/wireguard/warp.conf
           
-          # Start WireGuard connection
-          echo "Starting WARP connection..."
-          if ! sudo wg-quick up warp; then
-            echo "❌ Failed to start WARP"
-            echo "WARP_CONNECTED=false" >> $GITHUB_ENV
-            exit 0
-          fi
-          
-          echo "✅ WARP connected!"
-          
-          # Wait for connection to stabilize
-          sleep 3
-          
-          # Verify connection
-          echo ""
-          echo "Verifying WARP connection..."
-          
-          # Check WireGuard interface
-          if ! ip addr show warp &> /dev/null; then
-            echo "❌ WARP interface not found"
-            echo "WARP_CONNECTED=false" >> $GITHUB_ENV
-            exit 0
-          fi
-          
-          echo "✅ WARP interface active"
-          
-          # Get external IP
-          echo ""
-          echo "Checking external IP..."
-          sleep 2
-          external_ip=$(curl -s --max-time 10 https://api.ipify.org 2>/dev/null || echo "Unknown")
-          
-          if [ "$external_ip" != "Unknown" ]; then
-            ip_info=$(curl -s --max-time 10 "https://ipapi.co/$external_ip/json/" 2>/dev/null || echo "{}")
-            country=$(echo "$ip_info" | jq -r '.country_name // "Unknown"' 2>/dev/null || echo "Unknown")
-            city=$(echo "$ip_info" | jq -r '.city // "Unknown"' 2>/dev/null || echo "Unknown")
-            org=$(echo "$ip_info" | jq -r '.org // "Unknown"' 2>/dev/null || echo "Unknown")
-            
-            echo ""
-            echo "=========================================="
-            echo "✅ WARP Connection Established!"
-            echo "=========================================="
-            echo ""
-            echo "External IP: $external_ip"
-            echo "Location: $city, $country"
-            echo "Network: $org"
-            echo ""
-            echo "All traffic routes through Cloudflare WARP"
-            echo "=========================================="
+          echo "✅ WARP ready (will start after LocalTunnel)"
+          echo "=========================================="
             echo ""
             
             echo "WARP_CONNECTED=true" >> $GITHUB_ENV
