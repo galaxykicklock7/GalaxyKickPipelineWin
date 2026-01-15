@@ -110,17 +110,32 @@ jobs:
             exit 0
           fi
           
-          # Register WARP client (accept ToS automatically)
-          echo "Registering WARP client..."
-          warp-cli registration new --accept-tos
+          # Register WARP client
+          # WARP requires accepting ToS, we'll use 'yes' command to auto-accept
+          echo "Registering WARP client (accepting ToS)..."
           
-          if [ $? -ne 0 ]; then
-            echo "❌ WARP registration failed"
-            echo "WARP_CONNECTED=false" >> $GITHUB_ENV
-            exit 0
+          # Method 1: Pipe 'y' to accept ToS
+          if echo "y" | warp-cli registration new > /dev/null 2>&1; then
+            echo "✅ WARP registered (Method 1)"
+          else
+            # Method 2: Use expect-like behavior with timeout
+            echo "Trying alternative registration method..."
+            (sleep 1; echo "y") | warp-cli registration new > /dev/null 2>&1
+            
+            if [ $? -eq 0 ]; then
+              echo "✅ WARP registered (Method 2)"
+            else
+              # Method 3: Check if already registered
+              if warp-cli registration show > /dev/null 2>&1; then
+                echo "✅ WARP already registered"
+              else
+                echo "❌ WARP registration failed"
+                echo "This may be due to GitHub Actions restrictions"
+                echo "WARP_CONNECTED=false" >> $GITHUB_ENV
+                exit 0
+              fi
+            fi
           fi
-          
-          echo "✅ WARP registered (ToS accepted)"
           
           # Set mode to WARP (full tunnel)
           echo "Setting WARP mode..."
