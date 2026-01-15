@@ -149,44 +149,15 @@ jobs:
           # Move config to WireGuard directory
           sudo mv wgcf-profile.conf /etc/wireguard/warp.conf
           
-          # Modify config to avoid routing issues in GitHub Actions
-          echo "Modifying WireGuard config for GitHub Actions..."
-          
-          # Remove problematic routing rules that cause hangs
-          sudo sed -i '/PostUp/d' /etc/wireguard/warp.conf
-          sudo sed -i '/PostDown/d' /etc/wireguard/warp.conf
-          sudo sed -i '/Table/d' /etc/wireguard/warp.conf
-          
-          # Add simpler routing
-          echo "Table = off" | sudo tee -a /etc/wireguard/warp.conf
-          
-          echo "✅ Config modified for GitHub Actions"
-          
-          # Start WireGuard connection with timeout
+          # Start WireGuard connection
           echo "Starting WARP connection..."
-          
-          # Use timeout to prevent hanging
-          if ! timeout 15 sudo wg-quick up warp 2>&1 | tee /tmp/warp-connection.log; then
-            echo "⚠️  WireGuard connection timed out or failed"
-            echo ""
-            echo "Connection log:"
-            cat /tmp/warp-connection.log || true
-            echo ""
-            echo "This is likely due to GitHub Actions network restrictions"
+          if ! sudo wg-quick up warp; then
+            echo "❌ Failed to start WARP"
             echo "WARP_CONNECTED=false" >> $GITHUB_ENV
             exit 0
           fi
           
           echo "✅ WARP connected!"
-          
-          # Verify the connection actually works
-          echo "Testing WARP connection..."
-          if ! timeout 5 ping -c 1 1.1.1.1 &> /dev/null; then
-            echo "⚠️  WARP interface up but connectivity test failed"
-            echo "This may still work for your application"
-          else
-            echo "✅ WARP connectivity verified"
-          fi
           
           # Wait for connection to stabilize
           sleep 3
