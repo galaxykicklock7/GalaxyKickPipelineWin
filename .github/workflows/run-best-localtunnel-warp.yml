@@ -110,9 +110,9 @@ jobs:
             exit 0
           fi
           
-          # Register WARP client
+          # Register WARP client (accept ToS automatically)
           echo "Registering WARP client..."
-          warp-cli registration new
+          warp-cli registration new --accept-tos
           
           if [ $? -ne 0 ]; then
             echo "❌ WARP registration failed"
@@ -120,7 +120,7 @@ jobs:
             exit 0
           fi
           
-          echo "✅ WARP registered"
+          echo "✅ WARP registered (ToS accepted)"
           
           # Set mode to WARP (full tunnel)
           echo "Setting WARP mode..."
