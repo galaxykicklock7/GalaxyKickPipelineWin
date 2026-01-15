@@ -88,12 +88,20 @@ jobs:
           if [ -z "$PROXY_SERVER" ]; then
             echo "No proxy server specified, fetching free German/European proxies..."
             
-            # Use German proxies (close to Russia, good latency)
-            echo "Fetching German SOCKS5 proxies from proxy5.net..."
+            # Use Russian & German SOCKS5 proxies (best for low latency)
+            echo "Fetching Russian & German SOCKS5 proxies from proxy5.net..."
             
-            # Hardcoded list of working German SOCKS5 proxies from proxy5.net
-            PROXY_LIST="193.233.254.7:1080
+            # Hardcoded list of working Russian & German SOCKS5 proxies
+            # Russian proxies first (best for Russia game servers)
+            PROXY_LIST="94.233.120.194:1080
+            217.76.39.4:1080
+            194.28.162.12:1080
+            31.43.194.184:1080
+            46.146.210.123:1080
+            193.233.254.7:1080
             18.192.100.176:25723"
+            
+            echo "Loaded 5 Russian + 2 German SOCKS5 proxies"
             
             if [ -z "$PROXY_LIST" ]; then
               echo "Trying alternative Russian proxy sources..."
