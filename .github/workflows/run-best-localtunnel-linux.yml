@@ -7,6 +7,11 @@ name: BEST Headless Server with LocalTunnel (Linux) (Optimized)
 # 4. Reduced initial wait times: 15s→3s for server, 10s→3s for tunnel (saves ~19s)
 # 5. Smarter retry loops with exponential backoff (saves ~10-15s)
 # 6. Faster npm install with --prefer-offline and --no-audit (saves ~5-10s)
+#
+# FUTURE OPTIMIZATIONS:
+# - Use pre-built Docker image with all dependencies pre-installed (saves ~30-40s)
+# - Use GitHub Actions cache for system packages (if available)
+# - Migrate to faster tunneling service (like ngrok with custom domain)
 
 on:
   workflow_dispatch:
@@ -14,10 +19,6 @@ on:
       subdomain:
         description: 'Custom subdomain (e.g., bharanitest007 for https://bharanitest007.loca.lt)'
         required: true
-        type: string
-      proxy_server:
-        description: 'Proxy server (e.g., socks5://ip:port or leave empty for auto Russian proxy)'
-        required: false
         type: string
       rc1:
         description: 'Recovery Code 1'
@@ -77,127 +78,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-
 
-      - name: Setup Proxy (Mandatory - Always Enabled)
-        run: |
-          echo "=========================================="
-          echo "🔒 Setting up Proxy Routing (Mandatory)"
-          echo "=========================================="
-          
-          PROXY_SERVER="${{ github.event.inputs.proxy_server }}"
-          
-          if [ -z "$PROXY_SERVER" ]; then
-            echo "No proxy server specified, fetching free German/European proxies..."
-            
-            # Use Russian & German SOCKS5 proxies (best for low latency)
-            echo "Fetching Russian & German SOCKS5 proxies from proxy5.net..."
-            
-            # Hardcoded list of working Russian & German SOCKS5 proxies
-            # Russian proxies first (best for Russia game servers)
-            PROXY_LIST="94.233.120.194:1080
-            217.76.39.4:1080
-            194.28.162.12:1080
-            31.43.194.184:1080
-            46.146.210.123:1080
-            193.233.254.7:1080
-            18.192.100.176:25723"
-            
-            echo "Loaded 5 Russian + 2 German SOCKS5 proxies"
-            
-            if [ -z "$PROXY_LIST" ]; then
-              echo "Trying alternative Russian proxy sources..."
-              PROXY_LIST=$(curl -s "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=5000&country=RU,DE,FI&ssl=all&anonymity=all" 2>/dev/null | head -n 20)
-            fi
-            
-            if [ -z "$PROXY_LIST" ]; then
-              echo "Trying GitHub proxy list..."
-              PROXY_LIST=$(curl -s "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt" 2>/dev/null | head -n 30)
-            fi
-            
-            if [ -z "$PROXY_LIST" ]; then
-              echo "❌ CRITICAL: No proxies available from any source"
-              echo "⚠️  Continuing without proxy (direct connection)"
-              echo "PROXY_ENABLED=false" >> $GITHUB_ENV
-              exit 0
-            fi
-            
-            # Test proxies and find working one
-            echo "Testing proxies for best connection..."
-            WORKING_PROXY=""
-            proxy_count=0
-            
-            for proxy in $PROXY_LIST; do
-              proxy_count=$((proxy_count + 1))
-              echo "[$proxy_count] Testing proxy: $proxy"
-              
-              # Test proxy with timeout
-              if timeout 5 curl -x socks5://$proxy -s --max-time 5 https://api.ipify.org > /dev/null 2>&1; then
-                WORKING_PROXY="socks5://$proxy"
-                echo "✅ Found working proxy: $WORKING_PROXY"
-                break
-              else
-                echo "   ❌ Failed"
-              fi
-              
-              # Stop after testing 15 proxies
-              if [ $proxy_count -ge 15 ]; then
-                echo "Tested 15 proxies, stopping search..."
-                break
-              fi
-            done
-            
-            if [ -z "$WORKING_PROXY" ]; then
-              echo "❌ CRITICAL: No working proxies found after testing"
-              echo "⚠️  Continuing without proxy (direct connection)"
-              echo "PROXY_ENABLED=false" >> $GITHUB_ENV
-              exit 0
-            fi
-            
-            PROXY_SERVER="$WORKING_PROXY"
-          fi
-          
-          echo ""
-          echo "Using proxy: $PROXY_SERVER"
-          
-          # Set proxy environment variables for Node.js and system
-          echo "HTTP_PROXY=$PROXY_SERVER" >> $GITHUB_ENV
-          echo "HTTPS_PROXY=$PROXY_SERVER" >> $GITHUB_ENV
-          echo "http_proxy=$PROXY_SERVER" >> $GITHUB_ENV
-          echo "https_proxy=$PROXY_SERVER" >> $GITHUB_ENV
-          echo "NO_PROXY=localhost,127.0.0.1,localtunnel.me,*.loca.lt" >> $GITHUB_ENV
-          echo "no_proxy=localhost,127.0.0.1,localtunnel.me,*.loca.lt" >> $GITHUB_ENV
-          
-          # Verify proxy works
-          echo ""
-          echo "Verifying proxy connection..."
-          
-          if external_ip=$(timeout 10 curl -x "$PROXY_SERVER" -s https://api.ipify.org 2>/dev/null); then
-            ip_info=$(timeout 10 curl -x "$PROXY_SERVER" -s "https://ipapi.co/$external_ip/json/" 2>/dev/null || echo "{}")
-            country=$(echo "$ip_info" | jq -r '.country_name // "Unknown"' 2>/dev/null || echo "Unknown")
-            city=$(echo "$ip_info" | jq -r '.city // "Unknown"' 2>/dev/null || echo "Unknown")
-            
-            echo ""
-            echo "=========================================="
-            echo "✅ Proxy Connected!"
-            echo "=========================================="
-            echo ""
-            echo "Proxy IP: $external_ip"
-            echo "Location: $city, $country"
-            echo ""
-            echo "✅ All game traffic routes through proxy"
-            echo "✅ LocalTunnel excluded from proxy (direct)"
-            echo "=========================================="
-            echo ""
-            
-            echo "PROXY_ENABLED=true" >> $GITHUB_ENV
-            echo "PROXY_SERVER=$PROXY_SERVER" >> $GITHUB_ENV
-            echo "PROXY_IP=$external_ip" >> $GITHUB_ENV
-            echo "PROXY_LOCATION=$city, $country" >> $GITHUB_ENV
-          else
-            echo "❌ Proxy verification failed"
-            echo "⚠️  Continuing without proxy (direct connection)"
-            echo "PROXY_ENABLED=false" >> $GITHUB_ENV
-          fi
-
       - name: Install system dependencies for Electron
         run: |
           sudo apt-get update -qq
@@ -218,7 +98,8 @@ jobs:
             libcairo2 \
             libatspi2.0-0 \
             xvfb \
-            libasound2 || true
+            libasound2 \
+            libasound2t64 || true
           echo "✅ All system dependencies installed"
 
       - name: Install application dependencies
@@ -238,9 +119,6 @@ jobs:
           API_PORT: '3000'
           DISPLAY: ':99'
           TUNNEL_SUBDOMAIN: '${{ github.event.inputs.subdomain }}'
-          HTTP_PROXY: '${{ env.HTTP_PROXY }}'
-          HTTPS_PROXY: '${{ env.HTTPS_PROXY }}'
-          NO_PROXY: '${{ env.NO_PROXY }}'
         run: |
           echo "Starting virtual display (Xvfb)..."
           Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
@@ -393,20 +271,9 @@ jobs:
           echo ""
           echo "✨ Custom subdomain: $subdomain"
           echo "📌 This URL will be consistent on future runs!"
+          echo "   (as long as you use the same subdomain)"
           echo ""
-          
-          if [ "${{ env.PROXY_ENABLED }}" = "true" ]; then
-            echo "🔒 Proxy Status: ENABLED"
-            echo "📍 Proxy Location: ${{ env.PROXY_LOCATION }}"
-            echo "🌐 Proxy IP: ${{ env.PROXY_IP }}"
-            echo ""
-            echo "✅ Game traffic routes through proxy"
-            echo "✅ LocalTunnel connection direct (not proxied)"
-          else
-            echo "⚠️  Proxy Status: DISABLED"
-            echo "   (Using direct connection)"
-          fi
-          
+          echo "📋 Share this URL with your users!"
           echo ""
           echo "⚠️  IMPORTANT: First-time visitors may see a warning page"
           echo "   Include header: bypass-tunnel-reminder: true"
