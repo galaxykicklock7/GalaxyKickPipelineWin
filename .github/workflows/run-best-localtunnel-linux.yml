@@ -312,7 +312,7 @@ jobs:
 
           echo "BEST_PID=$BEST_PID" >> $GITHUB_ENV
 
-      - name: Start LocalTunnel (Routes through WARP)
+      - name: Start LocalTunnel (BEFORE WARP)
         run: |
           echo "Starting localtunnel..."
           subdomain="${{ github.event.inputs.subdomain }}"
@@ -321,8 +321,8 @@ jobs:
             echo "Using custom subdomain: $subdomain"
             tunnel_url="https://$subdomain.loca.lt"
 
-            # Start localtunnel in background
-            # All tunnel traffic will automatically route through WARP
+            # Start localtunnel in background BEFORE WARP
+            # This ensures LocalTunnel establishes connection before WARP routing starts
             nohup lt --port 3000 --subdomain "$subdomain" > localtunnel.log 2>&1 &
             LT_PID=$!
             echo "LocalTunnel started with PID: $LT_PID"
@@ -332,11 +332,11 @@ jobs:
           fi
 
           echo "Waiting for tunnel to establish..."
-          sleep 3
+          sleep 5
 
           # Verify tunnel
           attempts=0
-          max_attempts=5
+          max_attempts=10
           tunnel_established=false
 
           while [ $attempts -lt $max_attempts ] && [ "$tunnel_established" = "false" ]; do
@@ -353,9 +353,100 @@ jobs:
             fi
           done
 
+          if [ "$tunnel_established" = "false" ]; then
+            echo "⚠️  LocalTunnel may not be fully established yet"
+            echo "Continuing anyway..."
+          fi
+
+          echo "LT_PID=$LT_PID" >> $GITHUB_ENV
+          echo "TUNNEL_URL=$tunnel_url" >> $GITHUB_ENV
+
+      - name: Connect to Cloudflare WARP (AFTER LocalTunnel)
+        run: |
           echo ""
           echo "=========================================="
-          echo "✅ LocalTunnel Established!"
+          echo "� Connecting tro Cloudflare WARP"
+          echo "=========================================="
+          echo ""
+          echo "ℹ️  LocalTunnel is already running"
+          echo "   WARP will now route application traffic"
+          echo ""
+          
+          # Check if wgcf is installed
+          if ! command -v wgcf &> /dev/null; then
+            echo "⚠️  wgcf not installed, skipping WARP..."
+            echo "WARP_CONNECTED=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          
+          # Start WireGuard connection
+          echo "Starting WARP connection..."
+          if ! sudo wg-quick up warp; then
+            echo "❌ Failed to start WARP"
+            echo "WARP_CONNECTED=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          
+          echo "✅ WARP connected!"
+          
+          # Wait for connection to stabilize
+          sleep 3
+          
+          # Verify connection
+          echo ""
+          echo "Verifying WARP connection..."
+          
+          # Check WireGuard interface
+          if ! ip addr show warp &> /dev/null; then
+            echo "❌ WARP interface not found"
+            echo "WARP_CONNECTED=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          
+          echo "✅ WARP interface active"
+          
+          # Get external IP
+          echo ""
+          echo "Checking external IP..."
+          sleep 2
+          external_ip=$(curl -s --max-time 10 https://api.ipify.org 2>/dev/null || echo "Unknown")
+          
+          if [ "$external_ip" != "Unknown" ]; then
+            ip_info=$(curl -s --max-time 10 "https://ipapi.co/$external_ip/json/" 2>/dev/null || echo "{}")
+            country=$(echo "$ip_info" | jq -r '.country_name // "Unknown"' 2>/dev/null || echo "Unknown")
+            city=$(echo "$ip_info" | jq -r '.city // "Unknown"' 2>/dev/null || echo "Unknown")
+            org=$(echo "$ip_info" | jq -r '.org // "Unknown"' 2>/dev/null || echo "Unknown")
+            
+            echo ""
+            echo "=========================================="
+            echo "✅ WARP Connection Established!"
+            echo "=========================================="
+            echo ""
+            echo "External IP: $external_ip"
+            echo "Location: $city, $country"
+            echo "Network: $org"
+            echo ""
+            echo "Application traffic routes through WARP"
+            echo "LocalTunnel connection preserved"
+            echo "=========================================="
+            echo ""
+            
+            echo "WARP_CONNECTED=true" >> $GITHUB_ENV
+            echo "WARP_IP=$external_ip" >> $GITHUB_ENV
+            echo "WARP_LOCATION=$city, $country" >> $GITHUB_ENV
+          else
+            echo "✅ WARP connected (IP check failed)"
+            echo "WARP_CONNECTED=true" >> $GITHUB_ENV
+          fi
+
+      - name: Display Connection Status
+        run: |
+          tunnel_url="${TUNNEL_URL}"
+          subdomain="${{ github.event.inputs.subdomain }}"
+          
+          echo ""
+          echo "=========================================="
+          echo "✅ All Services Running!"
           echo "=========================================="
           echo ""
           echo "🌐 Your BEST Backend URL:"
@@ -370,7 +461,8 @@ jobs:
               echo "🌐 Exit Location: ${{ env.WARP_LOCATION }}"
             fi
             echo ""
-            echo "✅ All connections route through Cloudflare WARP"
+            echo "✅ Game server connections route through WARP"
+            echo "✅ LocalTunnel connection working normally"
           else
             echo "⚠️  WARP Status: NOT CONNECTED"
             echo "   (Using direct connection)"
@@ -378,9 +470,6 @@ jobs:
           
           echo ""
           echo "=========================================="
-
-          echo "LT_PID=$LT_PID" >> $GITHUB_ENV
-          echo "TUNNEL_URL=$tunnel_url" >> $GITHUB_ENV
 
       - name: Configure BEST via API
         if: ${{ github.event.inputs.rc1 != '' || github.event.inputs.rc2 != '' || github.event.inputs.rc3 != '' || github.event.inputs.rc4 != '' }}
