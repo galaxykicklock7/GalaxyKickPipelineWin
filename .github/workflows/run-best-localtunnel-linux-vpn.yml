@@ -91,6 +91,38 @@ jobs:
           openvpn_version=$(openvpn --version | head -n 1)
           echo "✅ OpenVPN installed: $openvpn_version"
           
+          # Check if TUN/TAP device is available
+          echo ""
+          echo "Checking TUN/TAP device availability..."
+          if [ -c /dev/net/tun ]; then
+            echo "✅ /dev/net/tun exists"
+            ls -la /dev/net/tun
+          else
+            echo "⚠️  /dev/net/tun not found, creating..."
+            sudo mkdir -p /dev/net
+            sudo mknod /dev/net/tun c 10 200
+            sudo chmod 666 /dev/net/tun
+            
+            if [ -c /dev/net/tun ]; then
+              echo "✅ /dev/net/tun created successfully"
+            else
+              echo "❌ Failed to create /dev/net/tun"
+              echo "VPN may not work on this runner"
+            fi
+          fi
+          
+          # Load TUN module
+          echo ""
+          echo "Loading TUN kernel module..."
+          sudo modprobe tun 2>/dev/null || echo "⚠️  Could not load TUN module (may already be loaded)"
+          
+          # Verify TUN module loaded
+          if lsmod | grep -q tun; then
+            echo "✅ TUN module loaded"
+          else
+            echo "⚠️  TUN module not visible (may still work)"
+          fi
+          
           # Install other dependencies
           echo ""
           echo "Installing system dependencies..."
@@ -307,23 +339,79 @@ jobs:
             
             # Check if tun0 interface exists (VPN connected)
             if ip addr show tun0 > /dev/null 2>&1; then
-              echo "✅ VPN connected!"
+              echo "✅ VPN connected! (tun0 interface detected)"
+              vpn_connected=true
+              break
+            fi
+            
+            # Also check for tap0 (alternative interface)
+            if ip addr show tap0 > /dev/null 2>&1; then
+              echo "✅ VPN connected! (tap0 interface detected)"
               vpn_connected=true
               break
             fi
             
             echo "Attempt $attempts/$max_attempts..."
+            
+            # Show OpenVPN process status every 5 attempts
+            if [ $((attempts % 5)) -eq 0 ]; then
+              if pgrep openvpn > /dev/null; then
+                echo "  OpenVPN process: Running"
+              else
+                echo "  OpenVPN process: Not running (may have crashed)"
+                break
+              fi
+            fi
           done
           
           if [ "$vpn_connected" = "false" ]; then
             echo "❌ VPN connection failed"
             echo ""
             echo "OpenVPN logs:"
-            cat /tmp/vpn/openvpn.log || echo "No logs available"
+            sudo cat /tmp/vpn/openvpn.log 2>/dev/null || echo "No logs available"
             echo ""
-            echo "Continuing without VPN..."
-            echo "VPN_CONNECTED=false" >> $GITHUB_ENV
-            exit 0
+            echo "OpenVPN process status:"
+            pgrep -a openvpn || echo "OpenVPN not running"
+            echo ""
+            echo "Network interfaces:"
+            ip addr show | grep -E "^[0-9]+:|inet " || true
+            echo ""
+            echo "Trying alternative connection method..."
+            
+            # Kill existing OpenVPN
+            sudo killall openvpn 2>/dev/null || true
+            sleep 2
+            
+            # Try with different settings (TCP instead of UDP, if available)
+            echo "Attempting connection with modified settings..."
+            
+            # Add script-security to allow running scripts
+            echo "script-security 2" >> vpn.ovpn
+            
+            # Try running OpenVPN in foreground for 10 seconds to see errors
+            timeout 10 sudo openvpn --config vpn.ovpn --verb 4 2>&1 | tee /tmp/vpn/openvpn-debug.log || true
+            
+            # Check if connection succeeded
+            if ip addr show tun0 > /dev/null 2>&1 || ip addr show tap0 > /dev/null 2>&1; then
+              echo "✅ VPN connected with alternative method!"
+              
+              # Restart in daemon mode
+              sudo killall openvpn 2>/dev/null || true
+              sleep 1
+              sudo openvpn --config vpn.ovpn --daemon --log /tmp/vpn/openvpn.log --verb 3
+              sleep 3
+              
+              vpn_connected=true
+            else
+              echo "❌ Alternative method also failed"
+              echo ""
+              echo "Debug logs:"
+              cat /tmp/vpn/openvpn-debug.log 2>/dev/null | tail -n 20 || echo "No debug logs"
+              echo ""
+              echo "Continuing without VPN..."
+              echo "VPN_CONNECTED=false" >> $GITHUB_ENV
+              exit 0
+            fi
           fi
           
           # Verify external IP changed
