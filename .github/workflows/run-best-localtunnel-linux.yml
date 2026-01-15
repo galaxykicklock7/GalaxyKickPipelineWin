@@ -86,29 +86,27 @@ jobs:
           PROXY_SERVER="${{ github.event.inputs.proxy_server }}"
           
           if [ -z "$PROXY_SERVER" ]; then
-            echo "No proxy server specified, fetching free Russian/European proxies..."
+            echo "No proxy server specified, fetching free German/European proxies..."
             
-            # Fetch free SOCKS5 proxies from Russia/Europe
-            echo "Downloading proxy list..."
+            # Use German proxies (close to Russia, good latency)
+            echo "Fetching German SOCKS5 proxies from proxy5.net..."
             
-            # Try to get Russian proxies
-            PROXY_LIST=$(curl -s "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=5000&country=RU&ssl=all&anonymity=all" 2>/dev/null | head -n 20)
+            # Hardcoded list of working German SOCKS5 proxies from proxy5.net
+            PROXY_LIST="193.233.254.7:1080
+18.192.100.176:25723"
             
             if [ -z "$PROXY_LIST" ]; then
-              echo "No Russian proxies found, trying European proxies (close to Russia)..."
-              PROXY_LIST=$(curl -s "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=5000&country=FI,EE,LV,PL&ssl=all&anonymity=all" 2>/dev/null | head -n 20)
+              echo "Trying alternative Russian proxy sources..."
+              PROXY_LIST=$(curl -s "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=5000&country=RU,DE,FI&ssl=all&anonymity=all" 2>/dev/null | head -n 20)
             fi
             
             if [ -z "$PROXY_LIST" ]; then
-              echo "❌ No free proxies available from API"
-              echo "Trying alternative proxy source..."
-              
-              # Alternative: Try another proxy list
+              echo "Trying GitHub proxy list..."
               PROXY_LIST=$(curl -s "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt" 2>/dev/null | head -n 30)
             fi
             
             if [ -z "$PROXY_LIST" ]; then
-              echo "❌ CRITICAL: No proxies available"
+              echo "❌ CRITICAL: No proxies available from any source"
               echo "⚠️  Continuing without proxy (direct connection)"
               echo "PROXY_ENABLED=false" >> $GITHUB_ENV
               exit 0
