@@ -69,32 +69,32 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-
 
-      - name: Install Cloudflare WARP
+      - name: Install Cloudflare WARP (via WireGuard)
         run: |
           echo "=========================================="
-          echo "🔒 Installing Cloudflare WARP"
+          echo "🔒 Installing Cloudflare WARP via WireGuard"
           echo "=========================================="
           
-          # Add Cloudflare GPG key
-          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
-          
-          # Add Cloudflare repository
-          echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
-          
-          # Update and install
+          # Install WireGuard
           sudo apt-get update -qq
-          sudo apt-get install -y cloudflare-warp
+          sudo apt-get install -y wireguard-tools curl jq
+          
+          # Download wgcf (unofficial WARP client that works non-interactively)
+          echo "Downloading wgcf..."
+          curl -fsSL https://github.com/ViRb3/wgcf/releases/latest/download/wgcf_2.2.22_linux_amd64 -o wgcf
+          chmod +x wgcf
+          sudo mv wgcf /usr/local/bin/
           
           # Verify installation
-          if ! command -v warp-cli &> /dev/null; then
-            echo "❌ WARP installation failed"
-            echo "Continuing without WARP..."
+          if ! command -v wgcf &> /dev/null; then
+            echo "❌ wgcf installation failed"
             echo "WARP_CONNECTED=false" >> $GITHUB_ENV
             exit 0
           fi
           
-          warp_version=$(warp-cli --version)
-          echo "✅ WARP installed: $warp_version"
+          wgcf_version=$(wgcf version 2>/dev/null || echo "2.2.22")
+          echo "✅ wgcf installed: $wgcf_version"
+          echo "✅ WireGuard tools installed"
           echo "=========================================="
 
       - name: Connect to Cloudflare WARP
@@ -103,87 +103,63 @@ jobs:
           echo "🔒 Connecting to Cloudflare WARP"
           echo "=========================================="
           
-          # Check if WARP is installed
-          if ! command -v warp-cli &> /dev/null; then
-            echo "⚠️  WARP not installed, skipping..."
+          # Check if wgcf is installed
+          if ! command -v wgcf &> /dev/null; then
+            echo "⚠️  wgcf not installed, skipping..."
             echo "WARP_CONNECTED=false" >> $GITHUB_ENV
             exit 0
           fi
           
-          # Register WARP client
-          # WARP requires accepting ToS, we'll use 'yes' command to auto-accept
-          echo "Registering WARP client (accepting ToS)..."
-          
-          # Method 1: Pipe 'y' to accept ToS
-          if echo "y" | warp-cli registration new > /dev/null 2>&1; then
-            echo "✅ WARP registered (Method 1)"
-          else
-            # Method 2: Use expect-like behavior with timeout
-            echo "Trying alternative registration method..."
-            (sleep 1; echo "y") | warp-cli registration new > /dev/null 2>&1
-            
-            if [ $? -eq 0 ]; then
-              echo "✅ WARP registered (Method 2)"
-            else
-              # Method 3: Check if already registered
-              if warp-cli registration show > /dev/null 2>&1; then
-                echo "✅ WARP already registered"
-              else
-                echo "❌ WARP registration failed"
-                echo "This may be due to GitHub Actions restrictions"
-                echo "WARP_CONNECTED=false" >> $GITHUB_ENV
-                exit 0
-              fi
-            fi
-          fi
-          
-          # Set mode to WARP (full tunnel)
-          echo "Setting WARP mode..."
-          warp-cli mode warp
-          
-          # Connect to WARP
-          echo "Connecting to WARP..."
-          warp-cli connect
-          
-          # Wait for connection (WARP is fast, usually 2-5 seconds)
-          echo "Waiting for WARP connection..."
-          attempts=0
-          max_attempts=10
-          warp_connected=false
-          
-          while [ $attempts -lt $max_attempts ]; do
-            attempts=$((attempts + 1))
-            sleep 1
-            
-            # Check connection status
-            status=$(warp-cli status 2>/dev/null || echo "Disconnected")
-            
-            if echo "$status" | grep -q "Connected"; then
-              echo "✅ WARP connected!"
-              warp_connected=true
-              break
-            fi
-            
-            echo "Attempt $attempts/$max_attempts... Status: $status"
-          done
-          
-          if [ "$warp_connected" = "false" ]; then
-            echo "❌ WARP connection failed"
-            echo ""
-            echo "WARP Status:"
-            warp-cli status || true
-            echo ""
-            echo "Continuing without WARP..."
+          # Register with WARP (non-interactive, no ToS prompt)
+          echo "Registering with WARP..."
+          if ! wgcf register --accept-tos; then
+            echo "❌ WARP registration failed"
             echo "WARP_CONNECTED=false" >> $GITHUB_ENV
             exit 0
           fi
           
-          # Get connection info
+          echo "✅ WARP registered"
+          
+          # Generate WireGuard configuration
+          echo "Generating WireGuard config..."
+          if ! wgcf generate; then
+            echo "❌ Failed to generate WireGuard config"
+            echo "WARP_CONNECTED=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          
+          echo "✅ WireGuard config generated"
+          
+          # Move config to WireGuard directory
+          sudo mv wgcf-profile.conf /etc/wireguard/warp.conf
+          
+          # Start WireGuard connection
+          echo "Starting WARP connection..."
+          if ! sudo wg-quick up warp; then
+            echo "❌ Failed to start WARP"
+            echo "WARP_CONNECTED=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          
+          echo "✅ WARP connected!"
+          
+          # Wait for connection to stabilize
+          sleep 3
+          
+          # Verify connection
           echo ""
-          echo "WARP Status:"
-          warp-cli status
+          echo "Verifying WARP connection..."
           
-          # Check external IP
+          # Check WireGuard interface
+          if ! ip addr show warp &> /dev/null; then
+            echo "❌ WARP interface not found"
+            echo "WARP_CONNECTED=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          
+          echo "✅ WARP interface active"
+          
+          # Get external IP
           echo ""
           echo "Checking external IP..."
           sleep 2
@@ -204,7 +180,7 @@ jobs:
             echo "Location: $city, $country"
             echo "Network: $org"
             echo ""
-            echo "All traffic will route through Cloudflare"
+            echo "All traffic routes through Cloudflare WARP"
             echo "=========================================="
             echo ""
             
@@ -497,15 +473,15 @@ jobs:
             
             # Check WARP status
             warp_status="N/A"
-            if [ "${{ env.WARP_CONNECTED }}" = "true" ] && command -v warp-cli &> /dev/null; then
-              if warp-cli status 2>/dev/null | grep -q "Connected"; then
+            if [ "${{ env.WARP_CONNECTED }}" = "true" ]; then
+              if ip addr show warp &> /dev/null; then
                 warp_status="✅ Connected"
               else
                 warp_status="❌ Disconnected"
                 echo ""
                 echo "⚠️  WARNING: WARP connection lost!"
                 echo "   Attempting to reconnect..."
-                warp-cli connect 2>/dev/null || true
+                sudo wg-quick up warp 2>/dev/null || true
                 echo ""
               fi
             fi
@@ -550,9 +526,9 @@ jobs:
             -H "Content-Type: application/json" > /dev/null 2>&1 || true
           
           # Disconnect WARP
-          if [ "${{ env.WARP_CONNECTED }}" = "true" ] && command -v warp-cli &> /dev/null; then
+          if [ "${{ env.WARP_CONNECTED }}" = "true" ]; then
             echo "Disconnecting WARP..."
-            warp-cli disconnect 2>/dev/null || true
+            sudo wg-quick down warp 2>/dev/null || true
             sleep 1
             echo "✅ WARP disconnected"
           fi
