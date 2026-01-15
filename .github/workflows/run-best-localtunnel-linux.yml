@@ -15,13 +15,8 @@ on:
         description: 'Custom subdomain (e.g., bharanitest007 for https://bharanitest007.loca.lt)'
         required: true
         type: string
-      proxy_enabled:
-        description: 'Enable proxy routing (yes/no)'
-        required: false
-        default: 'no'
-        type: string
       proxy_server:
-        description: 'Proxy server (e.g., socks5://ip:port or leave empty for auto)'
+        description: 'Proxy server (e.g., socks5://ip:port or leave empty for auto Russian proxy)'
         required: false
         type: string
       rc1:
@@ -82,11 +77,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-
 
-      - name: Setup Proxy (Optional)
-        if: ${{ github.event.inputs.proxy_enabled == 'yes' }}
+      - name: Setup Proxy (Mandatory - Always Enabled)
         run: |
           echo "=========================================="
-          echo "🔒 Setting up Proxy Routing"
+          echo "🔒 Setting up Proxy Routing (Mandatory)"
           echo "=========================================="
           
           PROXY_SERVER="${{ github.event.inputs.proxy_server }}"
@@ -98,36 +92,56 @@ jobs:
             echo "Downloading proxy list..."
             
             # Try to get Russian proxies
-            PROXY_LIST=$(curl -s "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=5000&country=RU&ssl=all&anonymity=all" 2>/dev/null | head -n 10)
+            PROXY_LIST=$(curl -s "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=5000&country=RU&ssl=all&anonymity=all" 2>/dev/null | head -n 20)
             
             if [ -z "$PROXY_LIST" ]; then
-              echo "No Russian proxies found, trying European proxies..."
-              PROXY_LIST=$(curl -s "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=5000&country=FI,EE,LV,PL&ssl=all&anonymity=all" 2>/dev/null | head -n 10)
+              echo "No Russian proxies found, trying European proxies (close to Russia)..."
+              PROXY_LIST=$(curl -s "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=5000&country=FI,EE,LV,PL&ssl=all&anonymity=all" 2>/dev/null | head -n 20)
             fi
             
             if [ -z "$PROXY_LIST" ]; then
-              echo "⚠️  No free proxies available"
+              echo "❌ No free proxies available from API"
+              echo "Trying alternative proxy source..."
+              
+              # Alternative: Try another proxy list
+              PROXY_LIST=$(curl -s "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt" 2>/dev/null | head -n 30)
+            fi
+            
+            if [ -z "$PROXY_LIST" ]; then
+              echo "❌ CRITICAL: No proxies available"
+              echo "⚠️  Continuing without proxy (direct connection)"
               echo "PROXY_ENABLED=false" >> $GITHUB_ENV
               exit 0
             fi
             
             # Test proxies and find working one
-            echo "Testing proxies..."
+            echo "Testing proxies for best connection..."
             WORKING_PROXY=""
+            proxy_count=0
             
             for proxy in $PROXY_LIST; do
-              echo "Testing proxy: $proxy"
+              proxy_count=$((proxy_count + 1))
+              echo "[$proxy_count] Testing proxy: $proxy"
               
               # Test proxy with timeout
               if timeout 5 curl -x socks5://$proxy -s --max-time 5 https://api.ipify.org > /dev/null 2>&1; then
                 WORKING_PROXY="socks5://$proxy"
                 echo "✅ Found working proxy: $WORKING_PROXY"
                 break
+              else
+                echo "   ❌ Failed"
+              fi
+              
+              # Stop after testing 15 proxies
+              if [ $proxy_count -ge 15 ]; then
+                echo "Tested 15 proxies, stopping search..."
+                break
               fi
             done
             
             if [ -z "$WORKING_PROXY" ]; then
-              echo "❌ No working proxies found"
+              echo "❌ CRITICAL: No working proxies found after testing"
+              echo "⚠️  Continuing without proxy (direct connection)"
               echo "PROXY_ENABLED=false" >> $GITHUB_ENV
               exit 0
             fi
@@ -163,8 +177,8 @@ jobs:
             echo "Proxy IP: $external_ip"
             echo "Location: $city, $country"
             echo ""
-            echo "Game traffic will route through proxy"
-            echo "LocalTunnel excluded from proxy"
+            echo "✅ All game traffic routes through proxy"
+            echo "✅ LocalTunnel excluded from proxy (direct)"
             echo "=========================================="
             echo ""
             
@@ -174,6 +188,7 @@ jobs:
             echo "PROXY_LOCATION=$city, $country" >> $GITHUB_ENV
           else
             echo "❌ Proxy verification failed"
+            echo "⚠️  Continuing without proxy (direct connection)"
             echo "PROXY_ENABLED=false" >> $GITHUB_ENV
           fi
 
