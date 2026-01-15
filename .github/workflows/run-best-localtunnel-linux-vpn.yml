@@ -327,10 +327,11 @@ jobs:
           
           echo "✅ OpenVPN daemon started"
           
-          # Wait for VPN connection (check every 2 seconds, max 30 seconds)
+          # Wait for VPN connection (check every 2 seconds, max 40 seconds)
           echo "Waiting for VPN connection..."
+          echo "(This may take 20-40 seconds for free VPN servers)"
           attempts=0
-          max_attempts=15
+          max_attempts=20
           vpn_connected=false
           
           while [ $attempts -lt $max_attempts ]; do
@@ -351,12 +352,21 @@ jobs:
               break
             fi
             
+            # Check logs for successful connection message
+            if sudo grep -q "Initialization Sequence Completed" /tmp/vpn/openvpn.log 2>/dev/null; then
+              echo "✅ VPN connected! (handshake completed)"
+              vpn_connected=true
+              break
+            fi
+            
             echo "Attempt $attempts/$max_attempts..."
             
             # Show OpenVPN process status every 5 attempts
             if [ $((attempts % 5)) -eq 0 ]; then
               if pgrep openvpn > /dev/null; then
                 echo "  OpenVPN process: Running"
+                # Show last line of log for progress
+                sudo tail -n 1 /tmp/vpn/openvpn.log 2>/dev/null | grep -v "^$" || true
               else
                 echo "  OpenVPN process: Not running (may have crashed)"
                 break
@@ -388,16 +398,43 @@ jobs:
             # Add script-security to allow running scripts
             echo "script-security 2" >> vpn.ovpn
             
-            # Try running OpenVPN in foreground for 10 seconds to see errors
-            timeout 10 sudo openvpn --config vpn.ovpn --verb 4 2>&1 | tee /tmp/vpn/openvpn-debug.log || true
+            # Try running OpenVPN in foreground for 30 seconds to complete handshake
+            timeout 30 sudo openvpn --config vpn.ovpn --verb 4 2>&1 | tee /tmp/vpn/openvpn-debug.log &
+            OPENVPN_PID=$!
+            
+            # Wait for connection with better checks
+            echo "Waiting for TLS handshake to complete..."
+            handshake_attempts=0
+            max_handshake_attempts=15
+            
+            while [ $handshake_attempts -lt $max_handshake_attempts ]; do
+              handshake_attempts=$((handshake_attempts + 1))
+              sleep 2
+              
+              # Check if tun/tap interface created
+              if ip addr show tun0 > /dev/null 2>&1 || ip addr show tap0 > /dev/null 2>&1; then
+                echo "✅ VPN interface created!"
+                break
+              fi
+              
+              # Check if we got an IP assignment in logs
+              if grep -q "Initialization Sequence Completed" /tmp/vpn/openvpn-debug.log 2>/dev/null; then
+                echo "✅ VPN handshake completed!"
+                break
+              fi
+              
+              echo "  Handshake attempt $handshake_attempts/$max_handshake_attempts..."
+            done
             
             # Check if connection succeeded
             if ip addr show tun0 > /dev/null 2>&1 || ip addr show tap0 > /dev/null 2>&1; then
               echo "✅ VPN connected with alternative method!"
               
-              # Restart in daemon mode
-              sudo killall openvpn 2>/dev/null || true
+              # Kill the foreground process
+              kill $OPENVPN_PID 2>/dev/null || true
               sleep 1
+              
+              # Restart in daemon mode for stability
               sudo openvpn --config vpn.ovpn --daemon --log /tmp/vpn/openvpn.log --verb 3
               sleep 3
               
@@ -405,8 +442,16 @@ jobs:
             else
               echo "❌ Alternative method also failed"
               echo ""
-              echo "Debug logs:"
-              cat /tmp/vpn/openvpn-debug.log 2>/dev/null | tail -n 20 || echo "No debug logs"
+              echo "Debug logs (last 30 lines):"
+              cat /tmp/vpn/openvpn-debug.log 2>/dev/null | tail -n 30 || echo "No debug logs"
+              echo ""
+              
+              # Check if it's a TLS handshake timeout
+              if grep -q "TLS: Initial packet" /tmp/vpn/openvpn-debug.log 2>/dev/null; then
+                echo "ℹ️  VPN server is responding but handshake is slow"
+                echo "   This is common with free VPN servers"
+              fi
+              
               echo ""
               echo "Continuing without VPN..."
               echo "VPN_CONNECTED=false" >> $GITHUB_ENV
