@@ -71,12 +71,30 @@ jobs:
 
       - name: Install VPN and system dependencies
         run: |
+          echo "=========================================="
           echo "Installing OpenVPN and dependencies..."
+          echo "=========================================="
+          
+          # Update package list
           sudo apt-get update -qq
           
-          # Install OpenVPN and other dependencies
+          # Install OpenVPN first (critical)
+          echo "Installing OpenVPN..."
+          sudo apt-get install -y openvpn
+          
+          # Verify OpenVPN installed
+          if ! command -v openvpn &> /dev/null; then
+            echo "❌ OpenVPN installation failed!"
+            exit 1
+          fi
+          
+          openvpn_version=$(openvpn --version | head -n 1)
+          echo "✅ OpenVPN installed: $openvpn_version"
+          
+          # Install other dependencies
+          echo ""
+          echo "Installing system dependencies..."
           sudo apt-get install -y --no-install-recommends \
-            openvpn \
             curl \
             jq \
             libnss3 \
@@ -94,10 +112,10 @@ jobs:
             libcairo2 \
             libatspi2.0-0 \
             xvfb \
-            libasound2 \
-            libasound2t64 || true
+            libasound2 || true
           
-          echo "✅ OpenVPN and system dependencies installed"
+          echo "✅ All dependencies installed"
+          echo "=========================================="
 
       - name: Download and Connect to Russian VPN
         run: |
@@ -126,16 +144,16 @@ jobs:
             exit 0
           fi
           
-          # Skip first 2 lines (headers) and filter for Russian servers
+          # Skip CSV header lines (lines starting with * or #)
           echo "Finding best Russian VPN server..."
           
           # Parse CSV and find Russian servers (skip header lines with *)
-          russian_servers=$(cat vpngate.csv | grep -v "^\*" | grep -v "^#" | grep ",RU," | head -n 10)
+          russian_servers=$(cat vpngate.csv | grep -v "^\*" | grep -v "^#" | grep ",RU," 2>/dev/null | head -n 10)
           
           if [ -z "$russian_servers" ]; then
             echo "⚠️  No Russian servers found, trying nearby countries..."
             # Try Finland, Estonia, Latvia (close to Russia)
-            russian_servers=$(cat vpngate.csv | grep -E ",FI,|,EE,|,LV," | head -n 10)
+            russian_servers=$(cat vpngate.csv | grep -v "^\*" | grep -v "^#" | grep -E ",FI,|,EE,|,LV," 2>/dev/null | head -n 10)
           fi
           
           if [ -z "$russian_servers" ]; then
@@ -250,6 +268,13 @@ jobs:
           
           echo "Connecting to VPN..."
           
+          # Verify OpenVPN is installed
+          if ! command -v openvpn &> /dev/null; then
+            echo "❌ OpenVPN not found! Installation may have failed."
+            echo "VPN_CONNECTED=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          
           # Add connection settings to config for better reliability
           echo "" >> vpn.ovpn
           echo "# Auto-added settings for GitHub Actions" >> vpn.ovpn
@@ -259,7 +284,16 @@ jobs:
           echo "auth-nocache" >> vpn.ovpn
           
           # Start OpenVPN in background with verbose logging
+          echo "Starting OpenVPN daemon..."
           sudo openvpn --config vpn.ovpn --daemon --log /tmp/vpn/openvpn.log --verb 3
+          
+          if [ $? -ne 0 ]; then
+            echo "❌ Failed to start OpenVPN"
+            echo "VPN_CONNECTED=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          
+          echo "✅ OpenVPN daemon started"
           
           # Wait for VPN connection (check every 2 seconds, max 30 seconds)
           echo "Waiting for VPN connection..."
