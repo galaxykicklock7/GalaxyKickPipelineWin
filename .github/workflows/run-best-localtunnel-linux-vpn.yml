@@ -113,13 +113,24 @@ jobs:
           echo "Fetching VPNGate server list..."
           
           # Download VPNGate CSV (contains free VPN servers worldwide)
-          curl -s "http://www.vpngate.net/api/iphone/" > vpngate.csv
+          if ! curl -s --max-time 30 "http://www.vpngate.net/api/iphone/" > vpngate.csv; then
+            echo "❌ Failed to download VPNGate server list"
+            echo "VPN_CONNECTED=false" >> $GITHUB_ENV
+            exit 0
+          fi
           
-          # Filter for Russian servers (CountryShort=RU), sort by speed, get best one
+          # Verify CSV downloaded
+          if [ ! -s vpngate.csv ]; then
+            echo "❌ Empty server list"
+            echo "VPN_CONNECTED=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          
+          # Skip first 2 lines (headers) and filter for Russian servers
           echo "Finding best Russian VPN server..."
           
-          # Parse CSV and find Russian servers
-          russian_servers=$(cat vpngate.csv | grep ",RU," | head -n 10)
+          # Parse CSV and find Russian servers (skip header lines with *)
+          russian_servers=$(cat vpngate.csv | grep -v "^\*" | grep -v "^#" | grep ",RU," | head -n 10)
           
           if [ -z "$russian_servers" ]; then
             echo "⚠️  No Russian servers found, trying nearby countries..."
@@ -137,35 +148,118 @@ jobs:
           # Get the fastest server (first one after sorting by speed)
           best_server=$(echo "$russian_servers" | head -n 1)
           
-          # Extract OpenVPN config (base64 encoded in last column)
-          ovpn_base64=$(echo "$best_server" | cut -d',' -f15)
-          server_name=$(echo "$best_server" | cut -d',' -f1)
-          server_country=$(echo "$best_server" | cut -d',' -f6)
-          server_speed=$(echo "$best_server" | cut -d',' -f5)
+          # VPNGate CSV format (skip first 2 header lines):
+          # Column 1: HostName
+          # Column 7: CountryLong
+          # Column 15: OpenVPN_ConfigData_Base64
+          
+          server_name=$(echo "$best_server" | awk -F',' '{print $1}')
+          server_country=$(echo "$best_server" | awk -F',' '{print $7}')
+          server_ip=$(echo "$best_server" | awk -F',' '{print $2}')
           
           echo ""
           echo "Selected VPN Server:"
           echo "  Name: $server_name"
           echo "  Country: $server_country"
-          echo "  Speed: $server_speed Mbps"
+          echo "  IP: $server_ip"
           echo ""
           
-          # Decode and save OpenVPN config
-          echo "$ovpn_base64" | base64 -d > vpn.ovpn
+          # Extract base64 config (last field, handle commas in config)
+          # Get everything after the 14th comma
+          ovpn_base64=$(echo "$best_server" | awk -F',' '{print $15}')
           
-          # Verify config file
-          if [ ! -s vpn.ovpn ]; then
-            echo "❌ Failed to download VPN config"
+          # Verify base64 data exists
+          if [ -z "$ovpn_base64" ] || [ "$ovpn_base64" = " " ]; then
+            echo "❌ No OpenVPN config found in CSV"
             echo "VPN_CONNECTED=false" >> $GITHUB_ENV
             exit 0
           fi
           
-          echo "✅ VPN config downloaded"
+          echo "Decoding OpenVPN config..."
+          
+          # Decode and save OpenVPN config (remove any whitespace first)
+          echo "$ovpn_base64" | tr -d '[:space:]' | base64 -d > vpn.ovpn 2>/dev/null
+          
+          # Verify config file
+          if [ ! -s vpn.ovpn ]; then
+            echo "❌ Failed to decode VPN config from CSV"
+            echo "Trying alternative download method..."
+            
+            # Alternative Method: Use VPNGate web API to get config directly
+            # Try to get UDP config first, then TCP
+            echo "Downloading config via web API..."
+            
+            # Extract session ID from hostname
+            session_id=$(echo "$server_name" | sed 's/vpn//')
+            
+            # Try downloading UDP config
+            if curl -s --max-time 20 "http://www.vpngate.net/common/openvpn_download.aspx?sid=$session_id&udp=1" > vpn.ovpn 2>/dev/null; then
+              if grep -q "client" vpn.ovpn 2>/dev/null; then
+                echo "✅ Downloaded UDP config"
+              else
+                # Try TCP config
+                curl -s --max-time 20 "http://www.vpngate.net/common/openvpn_download.aspx?sid=$session_id&tcp=1" > vpn.ovpn 2>/dev/null
+                if grep -q "client" vpn.ovpn 2>/dev/null; then
+                  echo "✅ Downloaded TCP config"
+                fi
+              fi
+            fi
+            
+            # Final check
+            if [ ! -s vpn.ovpn ] || ! grep -q "client" vpn.ovpn 2>/dev/null; then
+              echo "❌ All download methods failed"
+              echo "Trying next server..."
+              
+              # Try second server from list
+              best_server=$(echo "$russian_servers" | sed -n '2p')
+              if [ -n "$best_server" ]; then
+                server_name=$(echo "$best_server" | awk -F',' '{print $1}')
+                session_id=$(echo "$server_name" | sed 's/vpn//')
+                
+                echo "Trying alternate server: $server_name"
+                curl -s --max-time 20 "http://www.vpngate.net/common/openvpn_download.aspx?sid=$session_id&udp=1" > vpn.ovpn 2>/dev/null
+                
+                if [ ! -s vpn.ovpn ] || ! grep -q "client" vpn.ovpn 2>/dev/null; then
+                  echo "❌ Failed to download any working VPN config"
+                  echo "VPN_CONNECTED=false" >> $GITHUB_ENV
+                  exit 0
+                fi
+              else
+                echo "❌ No alternate servers available"
+                echo "VPN_CONNECTED=false" >> $GITHUB_ENV
+                exit 0
+              fi
+            fi
+          fi
+          
+          # Verify it's a valid OpenVPN config
+          if ! grep -q "client" vpn.ovpn; then
+            echo "❌ Invalid OpenVPN config file"
+            echo "VPN_CONNECTED=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          
+          echo "✅ VPN config ready"
           echo ""
+          
+          # Show first few lines of config (for debugging)
+          echo "Config preview:"
+          head -n 5 vpn.ovpn
+          echo "..."
+          echo ""
+          
           echo "Connecting to VPN..."
           
-          # Start OpenVPN in background
-          sudo openvpn --config vpn.ovpn --daemon --log /tmp/vpn/openvpn.log
+          # Add connection settings to config for better reliability
+          echo "" >> vpn.ovpn
+          echo "# Auto-added settings for GitHub Actions" >> vpn.ovpn
+          echo "connect-timeout 15" >> vpn.ovpn
+          echo "connect-retry-max 3" >> vpn.ovpn
+          echo "resolv-retry 10" >> vpn.ovpn
+          echo "auth-nocache" >> vpn.ovpn
+          
+          # Start OpenVPN in background with verbose logging
+          sudo openvpn --config vpn.ovpn --daemon --log /tmp/vpn/openvpn.log --verb 3
           
           # Wait for VPN connection (check every 2 seconds, max 30 seconds)
           echo "Waiting for VPN connection..."
