@@ -1,6 +1,5 @@
 version: v1.0
 name: BEST Headless Server with LocalTunnel
-
 agent:
   machine:
     type: f1-standard-2
@@ -27,7 +26,7 @@ blocks:
         always:
           commands:
             - echo "Cleaning up..."
-            - 'curl -X POST http://localhost:3000/api/disconnect -H "Content-Type:application/json" || true'
+            - 'curl -X POST http://localhost:3000/api/disconnect -H "Content-Type: application/json" || true'
             - echo "Cleanup complete"
       jobs:
         - name: Deploy
@@ -61,38 +60,18 @@ blocks:
             - echo "BEST started with PID $BEST_PID"
             - echo "Waiting for API server..."
             - sleep 3
-            - |
-              for i in 1 2 3 4 5 6; do
-                echo "Attempt $i to connect to API server..."
-                if curl -s --max-time 3 http://localhost:3000/api/health > /dev/null 2>&1; then
-                  echo "API Server is running"
-                  break
-                fi
-                if [ $i -eq 6 ]; then
-                  echo "Failed to start API Server"
-                  tail -n 100 ../../best-server.log
-                  exit 1
-                fi
-                sleep 2
-              done
+            - for i in 1 2 3 4 5 6; do echo "Attempt $i to connect to API server..."; if curl -s --max-time 3 http://localhost:3000/api/health > /dev/null 2>&1; then echo "API Server is running"; break; fi; if [ $i -eq 6 ]; then echo "Failed to start API Server"; tail -n 100 ../../best-server.log; exit 1; fi; sleep 2; done
             - cd ../..
-            - echo "Commit message: $SEMAPHORE_GIT_COMMIT_MESSAGE"
-            - 'export TUNNEL_SUBDOMAIN=$(echo "$SEMAPHORE_GIT_COMMIT_MESSAGE" | grep -oP "subdomain:\K[a-z0-9]+" || echo "best-backend")'
-            - echo "Extracted subdomain: $TUNNEL_SUBDOMAIN"
+            - echo "Commit message is $SEMAPHORE_GIT_COMMIT_MESSAGE"
+            - export TUNNEL_SUBDOMAIN=$(echo "$SEMAPHORE_GIT_COMMIT_MESSAGE" | grep -oP "subdomain:\K[a-z0-9]+" || echo "best-backend")
+            - echo "Extracted subdomain is $TUNNEL_SUBDOMAIN"
             - echo "Starting localtunnel with subdomain $TUNNEL_SUBDOMAIN"
-            - 'export TUNNEL_URL="https://$TUNNEL_SUBDOMAIN.loca.lt"'
+            - export TUNNEL_URL="https://$TUNNEL_SUBDOMAIN.loca.lt"
             - nohup lt --port 3000 --subdomain "$TUNNEL_SUBDOMAIN" > localtunnel.log 2>&1 &
             - export LT_PID=$!
             - echo "LocalTunnel started with PID $LT_PID"
             - sleep 3
-            - |
-              for i in 1 2 3 4 5; do
-                if grep -q "your url is:" localtunnel.log 2>/dev/null; then
-                  echo "LocalTunnel established"
-                  break
-                fi
-                sleep 2
-              done
+            - for i in 1 2 3 4 5; do if grep -q "your url is:" localtunnel.log 2>/dev/null; then echo "LocalTunnel established"; break; fi; sleep 2; done
             - echo "=========================================="
             - echo "LocalTunnel Established"
             - echo "=========================================="
@@ -105,33 +84,8 @@ blocks:
             - echo "POST /api/connect"
             - echo "See README for curl examples"
             - echo "=========================================="
-            - 'export DURATION=${DURATION:-60}'
-            - |
-              echo "Backend running for $DURATION minutes"
-              echo "Started: $(date '+%Y-%m-%d %H:%M:%S')"
-              end_time=$((SECONDS + DURATION * 60))
-              check_count=0
-              while [ $SECONDS -lt $end_time ]; do
-                check_count=$((check_count + 1))
-                if status_response=$(curl -s --max-time 5 http://localhost:3000/api/status 2>/dev/null); then
-                  connected=$(echo "$status_response" | grep -o '"connected":[^,}]*' | cut -d':' -f2)
-                  remaining=$(( (end_time - SECONDS) / 60 ))
-                  if [ "$connected" = "true" ]; then
-                    status_icon="Connected"
-                  else
-                    status_icon="Ready"
-                  fi
-                  echo "[$(date '+%H:%M:%S')] Check $check_count | $status_icon | Time left: $remaining min"
-                  if [ $((check_count % 10)) -eq 0 ]; then
-                    echo "Tunnel URL: $TUNNEL_URL"
-                  fi
-                else
-                  echo "[$(date '+%H:%M:%S')] Status check failed"
-                fi
-                sleep 60
-              done
-              echo "Run duration completed"
-              echo "Shutting down..."
+            - export DURATION=${DURATION:-60}
+            - echo "Backend running for $DURATION minutes"; echo "Started at $(date '+%Y-%m-%d %H:%M:%S')"; end_time=$((SECONDS + DURATION * 60)); check_count=0; while [ $SECONDS -lt $end_time ]; do check_count=$((check_count + 1)); if status_response=$(curl -s --max-time 5 http://localhost:3000/api/status 2>/dev/null); then connected=$(echo "$status_response" | grep -o '"connected":[^,}]*' | cut -d':' -f2); remaining=$(( (end_time - SECONDS) / 60 )); if [ "$connected" = "true" ]; then status_icon="Connected"; else status_icon="Ready"; fi; echo "[$(date '+%H:%M:%S')] Check $check_count | $status_icon | Time left $remaining min"; if [ $((check_count % 10)) -eq 0 ]; then echo "Tunnel URL $TUNNEL_URL"; fi; else echo "[$(date '+%H:%M:%S')] Status check failed"; fi; sleep 60; done; echo "Run duration completed"; echo "Shutting down..."
 promotions:
   - name: Deploy
     pipeline_file: semaphore.yml
