@@ -34,7 +34,8 @@ apiServer.use((req, res, next) => {
     // Production frontend (Vercel)
     'https://galaxykicklock2.vercel.app',
     'https://galaxykicklock2-galaxykicklocks-projects.vercel.app',
-    'https://galaxykicklock2-galaxykicklock77-galaxykicklocks-projects.vercel.app'
+    'https://galaxykicklock2-galaxykicklock77-galaxykicklocks-projects.vercel.app',
+    'https://galaxykicklocksem.vercel.app'
   ];
   
   const origin = req.headers.origin;
