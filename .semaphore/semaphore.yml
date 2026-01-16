@@ -20,13 +20,11 @@ promotions:
     pipeline_file: deploy.yml
     parameters:
       env_vars:
-        - required: true
-          options:
-            - TUNNEL_SUBDOMAIN
+        - name: TUNNEL_SUBDOMAIN
+          required: true
           default_value: best-backend
           description: Custom subdomain for LocalTunnel (e.g., user-123)
-        - required: false
-          options:
-            - DURATION
+        - name: DURATION
+          required: false
           default_value: "60"
           description: Run duration in minutes (max 60)
