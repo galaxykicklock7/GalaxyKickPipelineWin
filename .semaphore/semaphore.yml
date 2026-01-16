@@ -1,144 +1,32 @@
-version: v2.0
-name: BEST Headless Server with LocalTunnel
-
-# Parameters that can be passed from UI
-parameters:
-  TUNNEL_SUBDOMAIN:
-    description: "Subdomain for LocalTunnel"
-    default: "best-backend"
-  USERNAME:
-    description: "Username triggering deployment"
-    default: "user"
-  DURATION:
-    description: "Duration in minutes"
-    default: "60"
+version: v1.0
+name: Trigger Deployment
 
 agent:
   machine:
-    type: f1-standard-2
-  containers:
-    - name: main
-      image: ubuntu:20.04
-
-global_job_config:
-  prologue:
-    commands:
-      - checkout
-      # Export parameters as environment variables
-      - export TUNNEL_SUBDOMAIN="${TUNNEL_SUBDOMAIN}"
-      - export USERNAME="${USERNAME}"
-      - export DURATION="${DURATION}"
-      - echo "Deploying for user $USERNAME with subdomain $TUNNEL_SUBDOMAIN for $DURATION minutes"
+    type: e1-standard-2
+    os_image: ubuntu2004
 
 blocks:
-  - name: Deploy Backend
-    dependencies: []
+  - name: Initialize
     task:
-      env_vars:
-        - name: HEADLESS
-          value: 'true'
-        - name: API_PORT
-          value: '3000'
-        - name: DISPLAY
-          value: ':99'
-        - name: NODE_VERSION
-          value: '20'
-      
-      secrets:
-        - name: deployment-config
-      
-      epilogue:
-        always:
-          commands:
-            - echo "Cleaning up..."
-            - 'curl -X POST http://localhost:3000/api/disconnect -H "Content-Type: application/json" || true'
-            - echo "Cleanup complete"
-      
       jobs:
-        - name: Deploy
+        - name: Ready
           commands:
-            # Install Node.js
-            - apt-get update -qq
-            - apt-get install -y curl
-            - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-            - apt-get install -y nodejs
-            - node --version
-            - npm --version
-            
-            # Restore cache
-            - cache restore node-modules-$SEMAPHORE_GIT_BRANCH-$(checksum resources/app/package.json)
-            
-            # Install system dependencies
-            - echo "Installing system dependencies..."
-            - apt-get install -y --no-install-recommends libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libatspi2.0-0 xvfb libasound2
-            - echo "System dependencies installed"
-            
-            # Install application dependencies
-            - cd resources/app
-            - npm install --prefer-offline --no-audit
-            - echo "Application dependencies installed"
-            - cd ../..
-            
-            # Cache node_modules
-            - cache store node-modules-$SEMAPHORE_GIT_BRANCH-$(checksum resources/app/package.json) resources/app/node_modules
-            
-            # Install localtunnel
-            - npm install -g localtunnel --no-audit --silent
-            - echo "localtunnel installed"
-            
-            # Start virtual display
-            - echo "Starting virtual display..."
-            - Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
-            - sleep 1
-            
-            # Start BEST backend
-            - echo "Starting BEST in headless mode..."
-            - cd resources/app
-            - test -f package.json || exit 1
-            - test -d node_modules || exit 1
-            - test -f main.js || exit 1
-            - echo "All required files present"
-            - nohup npm run headless > ../../best-server.log 2>&1 &
-            - export BEST_PID=$!
-            - echo "BEST started with PID $BEST_PID"
-            
-            # Wait for API server
-            - echo "Waiting for API server..."
-            - sleep 3
-            - for i in 1 2 3 4 5 6; do echo "Attempt $i to connect to API server..."; if curl -s --max-time 3 http://localhost:3000/api/health > /dev/null 2>&1; then echo "API Server is running"; break; fi; if [ $i -eq 6 ]; then echo "Failed to start API Server"; tail -n 100 ../../best-server.log; exit 1; fi; sleep 2; done
-            - cd ../..
-            
-            # Start LocalTunnel with subdomain from parameter
-            - echo "Starting localtunnel with subdomain $TUNNEL_SUBDOMAIN"
-            - export TUNNEL_URL="https://$TUNNEL_SUBDOMAIN.loca.lt"
-            - nohup lt --port 3000 --subdomain "$TUNNEL_SUBDOMAIN" > localtunnel.log 2>&1 &
-            - export LT_PID=$!
-            - echo "LocalTunnel started with PID $LT_PID"
-            - sleep 3
-            
-            # Verify LocalTunnel
-            - for i in 1 2 3 4 5; do if grep -q "your url is:" localtunnel.log 2>/dev/null; then echo "LocalTunnel established"; break; fi; sleep 2; done
-            
-            # Display connection info
-            - echo "=========================================="
-            - echo "LocalTunnel Established"
-            - echo "=========================================="
-            - echo "Your BEST Backend is accessible at $TUNNEL_URL"
-            - echo "User $USERNAME"
-            - echo "=========================================="
-            - echo "API Endpoints available at the tunnel URL"
-            - echo "GET /api/health"
-            - echo "GET /api/status"
-            - echo "POST /api/configure"
-            - echo "POST /api/connect"
-            - echo "See README for curl examples"
-            - echo "=========================================="
-            
-            # Keep backend running
-            - echo "Backend running for $DURATION minutes"
-            - echo "Started at $(date '+%Y-%m-%d %H:%M:%S')"
-            - end_time=$((SECONDS + DURATION * 60))
-            - check_count=0
-            - while [ $SECONDS -lt $end_time ]; do check_count=$((check_count + 1)); if status_response=$(curl -s --max-time 5 http://localhost:3000/api/status 2>/dev/null); then connected=$(echo "$status_response" | grep -o '"connected":[^,}]*' | cut -d':' -f2); remaining=$(( (end_time - SECONDS) / 60 )); if [ "$connected" = "true" ]; then status_icon="Connected"; else status_icon="Ready"; fi; echo "[$(date '+%H:%M:%S')] Check $check_count | $status_icon | Time left $remaining min"; if [ $((check_count % 10)) -eq 0 ]; then echo "Tunnel URL $TUNNEL_URL"; fi; else echo "[$(date '+%H:%M:%S')] Status check failed"; fi; sleep 60; done
-            - echo "Run duration completed"
-            - echo "Shutting down..."
+            - echo "Ready to deploy"
+            - echo "Waiting for promotion with parameters..."
+
+promotions:
+  - name: Deploy Backend
+    pipeline_file: deploy.yml
+    parameters:
+      env_vars:
+        - required: true
+          options:
+            - TUNNEL_SUBDOMAIN
+          default_value: best-backend
+          description: Custom subdomain for LocalTunnel (e.g., user-123)
+        - required: false
+          options:
+            - DURATION
+          default_value: "60"
+          description: Run duration in minutes (max 60)
