@@ -76,8 +76,9 @@ blocks:
                 sleep 2
               done
             - cd ../..
-            - 'export TUNNEL_SUBDOMAIN=$(echo "$SEMAPHORE_GIT_COMMIT_MESSAGE" | grep -oP "subdomain:\K\w+" || echo "best-backend")'
-            - echo "Using subdomain: $TUNNEL_SUBDOMAIN"
+            - echo "Commit message: $SEMAPHORE_GIT_COMMIT_MESSAGE"
+            - 'export TUNNEL_SUBDOMAIN=$(echo "$SEMAPHORE_GIT_COMMIT_MESSAGE" | grep -oP "subdomain:\K[a-z0-9]+" || echo "best-backend")'
+            - echo "Extracted subdomain: $TUNNEL_SUBDOMAIN"
             - echo "Starting localtunnel with subdomain $TUNNEL_SUBDOMAIN"
             - 'export TUNNEL_URL="https://$TUNNEL_SUBDOMAIN.loca.lt"'
             - nohup lt --port 3000 --subdomain "$TUNNEL_SUBDOMAIN" > localtunnel.log 2>&1 &
