@@ -1,33 +1,14 @@
 version: v1.0
 name: BEST Headless Server with LocalTunnel
 
-# ADD THIS SECTION - Parameters that can be passed from UI
-parameters:
-  - name: TUNNEL_SUBDOMAIN
-    description: "Subdomain for LocalTunnel"
-    default_value: "best-backend"
-  - name: USERNAME
-    description: "Username triggering deployment"
-    default_value: "user"
-  - name: DURATION
-    description: "Duration in minutes"
-    default_value: "60"
-
 agent:
   machine:
     type: f1-standard-2
     os_image: ubuntu2004
-
 global_job_config:
   prologue:
     commands:
       - checkout
-      # ADD THESE LINES - Export parameters as environment variables
-      - export TUNNEL_SUBDOMAIN="${TUNNEL_SUBDOMAIN}"
-      - export USERNAME="${USERNAME}"
-      - export DURATION="${DURATION}"
-      - echo "Deploying for user $USERNAME with subdomain $TUNNEL_SUBDOMAIN"
-      
 blocks:
   - name: Deploy Backend
     task:
@@ -95,7 +76,8 @@ blocks:
                 sleep 2
               done
             - cd ../..
-            - 'export TUNNEL_SUBDOMAIN=${TUNNEL_SUBDOMAIN:-best-backend}'
+            - 'export TUNNEL_SUBDOMAIN=$(echo "$SEMAPHORE_GIT_COMMIT_MESSAGE" | grep -oP "subdomain:\K\w+" || echo "best-backend")'
+            - echo "Using subdomain: $TUNNEL_SUBDOMAIN"
             - echo "Starting localtunnel with subdomain $TUNNEL_SUBDOMAIN"
             - 'export TUNNEL_URL="https://$TUNNEL_SUBDOMAIN.loca.lt"'
             - nohup lt --port 3000 --subdomain "$TUNNEL_SUBDOMAIN" > localtunnel.log 2>&1 &
