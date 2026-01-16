@@ -62,9 +62,18 @@ blocks:
             - sleep 3
             - for i in 1 2 3 4 5 6; do echo "Attempt $i to connect to API server..."; if curl -s --max-time 3 http://localhost:3000/api/health > /dev/null 2>&1; then echo "API Server is running"; break; fi; if [ $i -eq 6 ]; then echo "Failed to start API Server"; tail -n 100 ../../best-server.log; exit 1; fi; sleep 2; done
             - cd ../..
-            - echo "Commit message is $SEMAPHORE_GIT_COMMIT_MESSAGE"
-            - export TUNNEL_SUBDOMAIN=$(echo "$SEMAPHORE_GIT_COMMIT_MESSAGE" | grep -oP "subdomain:\K[a-z0-9]+" || echo "best-backend")
-            - echo "Extracted subdomain is $TUNNEL_SUBDOMAIN"
+            - echo "=========================================="
+            - echo "DEPLOYMENT TRACKING INFO"
+            - echo "=========================================="
+            - echo "Workflow ID $SEMAPHORE_WORKFLOW_ID"
+            - echo "Frontend user $USERNAME"
+            - echo "Subdomain $TUNNEL_SUBDOMAIN"
+            - echo "Duration $DURATION minutes"
+            - echo "=========================================="
+            - export TUNNEL_SUBDOMAIN=${TUNNEL_SUBDOMAIN:-best-backend}
+            - export USERNAME=${USERNAME:-unknown}
+            - export DURATION=${DURATION:-60}
+            - echo "Using subdomain $TUNNEL_SUBDOMAIN for user $USERNAME"
             - echo "Starting localtunnel with subdomain $TUNNEL_SUBDOMAIN"
             - export TUNNEL_URL="https://$TUNNEL_SUBDOMAIN.loca.lt"
             - nohup lt --port 3000 --subdomain "$TUNNEL_SUBDOMAIN" > localtunnel.log 2>&1 &
