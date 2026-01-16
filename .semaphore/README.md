@@ -12,7 +12,33 @@ This directory contains the Semaphore CI/CD configuration for deploying the BEST
 4. Select your repository
 5. Semaphore will automatically detect the `.semaphore/semaphore.yml` file
 
-### 2. Run the Pipeline
+### 2. Configure Secrets (Environment Variables)
+
+In Semaphore UI, create a secret named `deployment-config` with the following variables:
+
+**Required:**
+- `TUNNEL_SUBDOMAIN` - Your custom subdomain (e.g., "bharanitest007" for https://bharanitest007.loca.lt)
+
+**Optional:**
+- `DURATION` - Run duration in minutes (default: 60, max: 60)
+- `RC1`, `RC2`, `RC3`, `RC4` - Recovery codes (if you want auto-configuration)
+- `KICKRC` - Kick code
+- `PLANET` - Planet name
+- `DEVICE` - Device type (312=Android, 323=iOS, 352=Web)
+
+#### How to Add Secrets in Semaphore:
+
+1. Go to your project in Semaphore
+2. Click on "Settings" → "Secrets"
+3. Click "Create New Secret"
+4. Name it `deployment-config`
+5. Add environment variables:
+   - Click "Add Environment Variable"
+   - Name: `TUNNEL_SUBDOMAIN`, Value: `your-subdomain-here`
+   - (Optional) Name: `DURATION`, Value: `60`
+6. Click "Save Secret"
+
+### 3. Run the Pipeline
 
 **Manual Trigger:**
 1. Go to your project in Semaphore
@@ -24,13 +50,13 @@ This directory contains the Semaphore CI/CD configuration for deploying the BEST
 - The pipeline will automatically run on every push to your repository
 - You can configure branch filters in the Semaphore UI
 
-### 3. Configure via curl
+### 4. Configure via curl (Recommended)
 
 Once the pipeline is running and the tunnel URL is displayed, use curl commands to configure:
 
 ```bash
-# Configure the bot
-curl -X POST https://best-backend.loca.lt/api/configure \
+# Get your tunnel URL from Semaphore logs, then configure
+curl -X POST https://YOUR-SUBDOMAIN.loca.lt/api/configure \
   -H "bypass-tunnel-reminder: true" \
   -H "Content-Type: application/json" \
   -d '{
@@ -44,39 +70,41 @@ curl -X POST https://best-backend.loca.lt/api/configure \
   }'
 
 # Connect to game server
-curl -X POST https://best-backend.loca.lt/api/connect \
+curl -X POST https://YOUR-SUBDOMAIN.loca.lt/api/connect \
   -H "bypass-tunnel-reminder: true" \
   -H "Content-Type: application/json"
 
 # Check status
-curl -H "bypass-tunnel-reminder: true" https://best-backend.loca.lt/api/status
+curl -H "bypass-tunnel-reminder: true" https://YOUR-SUBDOMAIN.loca.lt/api/status
 ```
 
-## 📋 Default Configuration
+## 📋 Configuration Options
 
-The pipeline uses these default values:
+### Environment Variables (via Semaphore Secrets)
 
-| Variable | Value | Description |
-|----------|-------|-------------|
-| `TUNNEL_SUBDOMAIN` | "best-backend" | Fixed subdomain for LocalTunnel |
-| `DURATION` | 60 | Run duration in minutes (1 hour) |
-| `NODE_VERSION` | "20" | Node.js version |
-| `API_PORT` | "3000" | API server port |
-| `DEVICE` | "312" | Default device type (Android) |
+Configure these in the Semaphore UI under Settings → Secrets → `deployment-config`:
 
-**Your backend will always be available at:**
-```
-https://best-backend.loca.lt
-```
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `TUNNEL_SUBDOMAIN` | Custom subdomain for LocalTunnel | Yes | "best-backend" |
+| `DURATION` | Run duration in minutes (max 60) | No | 60 |
+| `RC1`, `RC2`, `RC3`, `RC4` | Recovery codes (optional) | No | - |
+| `KICKRC` | Kick code (optional) | No | - |
+| `PLANET` | Planet name (optional) | No | - |
+| `DEVICE` | Device type (optional) | No | "312" |
+
+**Note:** If you don't set `TUNNEL_SUBDOMAIN`, it defaults to "best-backend".
 
 ## 🔧 Configuration via API
 
-All bot configuration is done via curl commands after the pipeline starts:
+All bot configuration is done via curl commands after the pipeline starts.
+
+**Important:** Replace `YOUR-SUBDOMAIN` with the subdomain you set in Semaphore secrets.
 
 ### Configure Bot Settings
 
 ```bash
-curl -X POST https://best-backend.loca.lt/api/configure \
+curl -X POST https://YOUR-SUBDOMAIN.loca.lt/api/configure \
   -H "bypass-tunnel-reminder: true" \
   -H "Content-Type: application/json" \
   -d '{
@@ -93,7 +121,7 @@ curl -X POST https://best-backend.loca.lt/api/configure \
 ### Connect to Game Server
 
 ```bash
-curl -X POST https://best-backend.loca.lt/api/connect \
+curl -X POST https://YOUR-SUBDOMAIN.loca.lt/api/connect \
   -H "bypass-tunnel-reminder: true" \
   -H "Content-Type: application/json"
 ```
@@ -101,13 +129,13 @@ curl -X POST https://best-backend.loca.lt/api/connect \
 ### Check Connection Status
 
 ```bash
-curl -H "bypass-tunnel-reminder: true" https://best-backend.loca.lt/api/status
+curl -H "bypass-tunnel-reminder: true" https://YOUR-SUBDOMAIN.loca.lt/api/status
 ```
 
 ### Disconnect from Game
 
 ```bash
-curl -X POST https://best-backend.loca.lt/api/disconnect \
+curl -X POST https://YOUR-SUBDOMAIN.loca.lt/api/disconnect \
   -H "bypass-tunnel-reminder: true" \
   -H "Content-Type: application/json"
 ```
@@ -115,7 +143,7 @@ curl -X POST https://best-backend.loca.lt/api/disconnect \
 ### View Logs
 
 ```bash
-curl -H "bypass-tunnel-reminder: true" https://best-backend.loca.lt/api/logs
+curl -H "bypass-tunnel-reminder: true" https://YOUR-SUBDOMAIN.loca.lt/api/logs
 ```
 
 ### Machine Type
@@ -138,23 +166,19 @@ Available machine types:
 
 ### Change Subdomain
 
-Edit the `TUNNEL_SUBDOMAIN` value in `semaphore.yml`:
+Set the `TUNNEL_SUBDOMAIN` environment variable in your Semaphore secret:
 
-```yaml
-env_vars:
-  - name: TUNNEL_SUBDOMAIN
-    value: "best-backend"  # Change to your preferred subdomain
-```
+1. Go to Settings → Secrets → `deployment-config`
+2. Add/Edit variable: `TUNNEL_SUBDOMAIN` = `your-custom-subdomain`
+3. Save and re-run the pipeline
 
 ### Change Run Duration
 
-Edit the `DURATION` value in `semaphore.yml`:
+Set the `DURATION` environment variable in your Semaphore secret:
 
-```yaml
-env_vars:
-  - name: DURATION
-    value: "60"  # Change to desired minutes (max 60)
-```
+1. Go to Settings → Secrets → `deployment-config`
+2. Add/Edit variable: `DURATION` = `45` (for 45 minutes, max 60)
+3. Save and re-run the pipeline
 
 ### Change Node.js Version
 
@@ -194,18 +218,19 @@ The pipeline consists of the following stages:
 
 ### Check Server Status
 
-The backend is always available at `https://best-backend.loca.lt`. Test it with:
+Test your backend with (replace YOUR-SUBDOMAIN):
 
 ```bash
-curl -H "bypass-tunnel-reminder: true" https://best-backend.loca.lt/api/health
+curl -H "bypass-tunnel-reminder: true" https://YOUR-SUBDOMAIN.loca.lt/api/health
 ```
 
 ## 🐛 Troubleshooting
 
 ### Pipeline Fails to Start
 
+- Check that `TUNNEL_SUBDOMAIN` is set in Semaphore secrets
+- Verify the subdomain is unique and valid (alphanumeric and hyphens only)
 - Check the logs in Semaphore UI
-- Verify Node.js and system dependencies are installing correctly
 
 ### Server Not Responding
 
@@ -216,7 +241,7 @@ curl -H "bypass-tunnel-reminder: true" https://best-backend.loca.lt/api/health
 ### Tunnel Not Establishing
 
 - LocalTunnel may be rate-limited or the subdomain may be taken
-- Try changing the subdomain in `semaphore.yml`
+- Try a different subdomain by changing `TUNNEL_SUBDOMAIN` in secrets
 - Check localtunnel.log in the pipeline output
 
 ### Cache Issues
@@ -229,11 +254,13 @@ If you encounter dependency issues, clear the cache:
 
 ## 📚 API Endpoints
 
-Your backend is available at:
+Your backend will be available at:
 
 ```
-https://best-backend.loca.lt
+https://YOUR-SUBDOMAIN.loca.lt
 ```
+
+(Replace `YOUR-SUBDOMAIN` with the value you set in `TUNNEL_SUBDOMAIN`)
 
 Available endpoints:
 - `GET /api/health` - Health check
@@ -247,29 +274,32 @@ Available endpoints:
 ### Example Usage
 
 ```bash
+# Replace YOUR-SUBDOMAIN with your actual subdomain
+SUBDOMAIN="your-subdomain-here"
+
 # Health check
-curl -H "bypass-tunnel-reminder: true" https://best-backend.loca.lt/api/health
+curl -H "bypass-tunnel-reminder: true" https://$SUBDOMAIN.loca.lt/api/health
 
 # Configure
-curl -X POST https://best-backend.loca.lt/api/configure \
+curl -X POST https://$SUBDOMAIN.loca.lt/api/configure \
   -H "bypass-tunnel-reminder: true" \
   -H "Content-Type: application/json" \
   -d '{"rc1":"CODE1","rc2":"CODE2","planet":"Earth","device":"312"}'
 
 # Connect
-curl -X POST https://best-backend.loca.lt/api/connect \
+curl -X POST https://$SUBDOMAIN.loca.lt/api/connect \
   -H "bypass-tunnel-reminder: true"
 
 # Check status
-curl -H "bypass-tunnel-reminder: true" https://best-backend.loca.lt/api/status
+curl -H "bypass-tunnel-reminder: true" https://$SUBDOMAIN.loca.lt/api/status
 ```
 
 ## 💡 Tips
 
-1. **Consistent URL**: The backend always uses `https://best-backend.loca.lt` for easy access
-2. **No Secrets Needed**: All configuration is done via curl commands after deployment
+1. **Custom Subdomain**: Set `TUNNEL_SUBDOMAIN` in Semaphore secrets for consistent URLs
+2. **No Hardcoded Secrets**: All configuration is done via Semaphore secrets or curl commands
 3. **Monitoring**: Check the pipeline logs to see connection status updates
-4. **Duration**: Pipeline runs for 60 minutes, then automatically shuts down gracefully
+4. **Duration**: Default is 60 minutes, set `DURATION` in secrets to change
 5. **Bypass Header**: Always include `-H "bypass-tunnel-reminder: true"` in your curl commands
 
 ## 🆚 Differences from GitHub Actions
@@ -277,9 +307,10 @@ curl -H "bypass-tunnel-reminder: true" https://best-backend.loca.lt/api/status
 | Feature | GitHub Actions | Semaphore CI |
 |---------|---------------|--------------|
 | Configuration | `.github/workflows/*.yml` | `.semaphore/semaphore.yml` |
-| Input Method | `workflow_dispatch` with inputs | curl commands to API |
-| Default Subdomain | User-provided input | Fixed: "best-backend" |
-| Duration | User-provided input | Fixed: 60 minutes |
+| Secrets | Repository Secrets | Project Secrets |
+| Subdomain | Workflow input parameter | Environment variable in secret |
+| Duration | Workflow input parameter | Environment variable in secret |
+| Input Method | `workflow_dispatch` inputs + curl | Secrets + curl commands |
 | Caching | `actions/cache@v4` | `cache restore/store` commands |
 | Node Setup | `actions/setup-node@v4` | `sem-version node` command |
 
@@ -296,20 +327,18 @@ Once the pipeline runs successfully, you'll see output like:
 
 ```
 ========================================
-✅ LocalTunnel Established!
+LocalTunnel Established
 ========================================
 
-🌐 Your BEST Backend is now accessible at:
-
-    https://best-backend.loca.lt
+Your BEST Backend is accessible at https://YOUR-SUBDOMAIN.loca.lt
 
 ========================================
 ```
 
-Now configure it with curl:
+Now configure it with curl (replace YOUR-SUBDOMAIN):
 
 ```bash
-curl -X POST https://best-backend.loca.lt/api/configure \
+curl -X POST https://YOUR-SUBDOMAIN.loca.lt/api/configure \
   -H "bypass-tunnel-reminder: true" \
   -H "Content-Type: application/json" \
   -d '{"rc1":"YOUR_CODE","planet":"Earth","device":"312"}'

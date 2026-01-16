@@ -20,10 +20,10 @@ blocks:
           value: ':99'
         - name: NODE_VERSION
           value: '20'
-        - name: TUNNEL_SUBDOMAIN
-          value: best-backend1
-        - name: DURATION
-          value: '60'
+      
+      secrets:
+        - name: deployment-config
+      
       epilogue:
         always:
           commands:
@@ -77,6 +77,7 @@ blocks:
                 sleep 2
               done
             - cd ../..
+            - export TUNNEL_SUBDOMAIN=${TUNNEL_SUBDOMAIN:-"best-backend"}
             - echo "Starting localtunnel with subdomain $TUNNEL_SUBDOMAIN"
             - 'export TUNNEL_URL="https://$TUNNEL_SUBDOMAIN.loca.lt"'
             - nohup lt --port 3000 --subdomain "$TUNNEL_SUBDOMAIN" > localtunnel.log 2>&1 &
@@ -103,6 +104,7 @@ blocks:
             - echo "POST /api/connect"
             - echo "See README for curl examples"
             - echo "=========================================="
+            - export DURATION=${DURATION:-60}
             - |
               echo "Backend running for $DURATION minutes"
               echo "Started: $(date '+%Y-%m-%d %H:%M:%S')"
