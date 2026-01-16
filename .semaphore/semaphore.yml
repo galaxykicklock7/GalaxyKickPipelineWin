@@ -1,35 +1,39 @@
 version: v1.0
 name: BEST Headless Server with LocalTunnel
+
 agent:
   machine:
     type: e1-standard-2
     os_image: ubuntu2004
+
 global_job_config:
   prologue:
     commands:
       - checkout
+
 blocks:
   - name: Deploy Backend
     task:
       env_vars:
         - name: HEADLESS
-          value: 'true'
+          value: "true"
         - name: API_PORT
-          value: '3000'
+          value: "3000"
         - name: DISPLAY
-          value: ':99'
+          value: ":99"
         - name: NODE_VERSION
-          value: '20'
-        - name: TUNNEL_SUBDOMAIN
-          value: best-backend1
-        - name: DURATION
-          value: '60'
+          value: "20"
+      
+      secrets:
+        - name: deployment-config
+      
       epilogue:
         always:
           commands:
             - echo "Cleaning up..."
-            - 'curl -X POST http://localhost:3000/api/disconnect -H "Content-Type: application/json" || true'
+            - curl -X POST http://localhost:3000/api/disconnect -H "Content-Type:application/json" || true
             - echo "Cleanup complete"
+      
       jobs:
         - name: Deploy
           commands:
@@ -49,7 +53,7 @@ blocks:
             - npm install -g localtunnel --no-audit --silent
             - echo "localtunnel installed"
             - echo "Starting virtual display..."
-            - 'Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &'
+            - Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
             - sleep 1
             - echo "Starting BEST in headless mode..."
             - cd resources/app
@@ -77,9 +81,9 @@ blocks:
                 sleep 2
               done
             - cd ../..
+            - export TUNNEL_SUBDOMAIN=${TUNNEL_SUBDOMAIN:-best-backend}
             - echo "Starting localtunnel with subdomain $TUNNEL_SUBDOMAIN"
-            - echo "Username: $USERNAME"
-            - 'export TUNNEL_URL="https://$TUNNEL_SUBDOMAIN.loca.lt"'
+            - export TUNNEL_URL="https://$TUNNEL_SUBDOMAIN.loca.lt"
             - nohup lt --port 3000 --subdomain "$TUNNEL_SUBDOMAIN" > localtunnel.log 2>&1 &
             - export LT_PID=$!
             - echo "LocalTunnel started with PID $LT_PID"
@@ -95,8 +99,7 @@ blocks:
             - echo "=========================================="
             - echo "LocalTunnel Established"
             - echo "=========================================="
-            - 'echo "Your BEST Backend is accessible at https://$TUNNEL_SUBDOMAIN.loca.lt"'
-            - echo "User: $USERNAME"
+            - echo "Your BEST Backend is accessible at $TUNNEL_URL"
             - echo "=========================================="
             - echo "API Endpoints available at the tunnel URL"
             - echo "GET /api/health"
@@ -105,39 +108,34 @@ blocks:
             - echo "POST /api/connect"
             - echo "See README for curl examples"
             - echo "=========================================="
+            - export DURATION=${DURATION:-60}
             - |
               echo "Backend running for $DURATION minutes"
               echo "Started: $(date '+%Y-%m-%d %H:%M:%S')"
               end_time=$((SECONDS + DURATION * 60))
               check_count=0
-
               while [ $SECONDS -lt $end_time ]; do
                 check_count=$((check_count + 1))
-                
                 if status_response=$(curl -s --max-time 5 http://localhost:3000/api/status 2>/dev/null); then
                   connected=$(echo "$status_response" | grep -o '"connected":[^,}]*' | cut -d':' -f2)
                   remaining=$(( (end_time - SECONDS) / 60 ))
-                  
                   if [ "$connected" = "true" ]; then
-                    status_icon="✓ Connected"
+                    status_icon="Connected"
                   else
-                    status_icon="○ Ready"
+                    status_icon="Ready"
                   fi
-                  
                   echo "[$(date '+%H:%M:%S')] Check $check_count | $status_icon | Time left: $remaining min"
-                  
                   if [ $((check_count % 10)) -eq 0 ]; then
-                    echo "Tunnel URL: https://$TUNNEL_SUBDOMAIN.loca.lt"
+                    echo "Tunnel URL: $TUNNEL_URL"
                   fi
                 else
                   echo "[$(date '+%H:%M:%S')] Status check failed"
                 fi
-                
                 sleep 60
               done
-
               echo "Run duration completed"
               echo "Shutting down..."
+
 promotions:
   - name: Deploy
     pipeline_file: semaphore.yml
