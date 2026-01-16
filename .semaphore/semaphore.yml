@@ -2,7 +2,7 @@ version: v1.0
 name: BEST Headless Server with LocalTunnel
 agent:
   machine:
-    type: f1-standard-2
+    type: e1-standard-2
     os_image: ubuntu2004
 global_job_config:
   prologue:
