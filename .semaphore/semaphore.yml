@@ -33,10 +33,10 @@ blocks:
           value: ":99"
         - name: NODE_VERSION
           value: "20"
-      
-      # Secrets (configure these in Semaphore UI)
-      secrets:
-        - name: deployment-config
+        - name: TUNNEL_SUBDOMAIN
+          value: "best-backend"
+        - name: DURATION
+          value: "60"
       
       # Job timeout (60 minutes max)
       epilogue:
@@ -191,7 +191,6 @@ blocks:
             # Start LocalTunnel
             - cd ../..
             - echo "Starting localtunnel..."
-            - export TUNNEL_SUBDOMAIN=${TUNNEL_SUBDOMAIN:-"best-default"}
             - echo "Using subdomain:$TUNNEL_SUBDOMAIN"
             - export TUNNEL_URL="https://$TUNNEL_SUBDOMAIN.loca.lt"
             
@@ -255,48 +254,6 @@ blocks:
             - echo ""
             - echo "=========================================="
             
-            # Configure BEST via API (if environment variables are set)
-            - |
-              if [ -n "$RC1" ] || [ -n "$RC2" ] || [ -n "$RC3" ] || [ -n "$RC4" ]; then
-                echo "Configuring BEST..."
-                
-                config_json=$(cat <<EOF
-              {
-                "rc1": "${RC1:-}",
-                "rc2": "${RC2:-}",
-                "rc3": "${RC3:-}",
-                "rc4": "${RC4:-}",
-                "kickrc": "${KICKRC:-}",
-                "planet": "${PLANET:-}",
-                "device": "${DEVICE:-312}"
-              }
-              EOF
-                )
-                
-                if curl -X POST http://localhost:3000/api/configure \
-                  -H "Content-Type: application/json" \
-                  -d "$config_json" > /dev/null 2>&1; then
-                  echo "✅ Configuration applied"
-                else
-                  echo "⚠️  Configuration failed"
-                fi
-              fi
-            
-            # Connect to Game (if configured)
-            - |
-              if [ -n "$RC1" ] || [ -n "$RC2" ] || [ -n "$RC3" ] || [ -n "$RC4" ]; then
-                echo "Connecting to game server..."
-                
-                if curl -X POST http://localhost:3000/api/connect \
-                  -H "Content-Type: application/json" > /dev/null 2>&1; then
-                  echo "✅ Connection initiated"
-                  sleep 3
-                  echo "✅ Connection status verified"
-                else
-                  echo "⚠️  Connection failed"
-                fi
-              fi
-            
             # Display API Information
             - echo ""
             - echo "=========================================="
@@ -334,16 +291,7 @@ blocks:
             - echo ""
             
             # Keep Running
-            - export DURATION=${DURATION:-60}
             - |
-              # Validate duration
-              if [ -z "$DURATION" ] || [ "$DURATION" -lt 1 ]; then
-                DURATION=60
-              fi
-              
-              if [ "$DURATION" -gt 60 ]; then
-                DURATION=60
-              fi
               
               echo ""
               echo "=========================================="
