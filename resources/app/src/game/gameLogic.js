@@ -635,11 +635,11 @@ class GameLogic {
                 const data = text.replaceAll("+", "").toLowerCase();
                 
                 // BAN + Blacklist mode: Check ALL blacklists (kick + imprison)
-                // Load all four blacklist types
-                const kblacklist = (this.config.kblacklist || "").toLowerCase().split("\n").filter(k => k.trim());
-                const kgangblacklist = (this.config.kgangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
-                const blacklist = (this.config.blacklist || "").toLowerCase().split("\n").filter(b => b.trim());
-                const gangblacklist = (this.config.gangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+                // Load all four blacklist types (preserve original case)
+                const kblacklist = (this.config.kblacklist || "").split("\n").filter(k => k.trim());
+                const kgangblacklist = (this.config.kgangblacklist || "").split("\n").filter(g => g.trim());
+                const blacklist = (this.config.blacklist || "").split("\n").filter(b => b.trim());
+                const gangblacklist = (this.config.gangblacklist || "").split("\n").filter(g => g.trim());
                 
                 // Merge all username blacklists
                 const allUserBlacklists = [...kblacklist, ...blacklist];
@@ -655,7 +655,7 @@ class GameLogic {
                 
                 // Process ALL username blacklists (kick + imprison)
                 allUserBlacklists.forEach((element) => {
-                    if (element && data.includes(element)) {
+                    if (element && data.toLowerCase().includes(element.toLowerCase())) {
                         console.log(`[WS${this.wsNumber}] 353 BAN mode - Found username match: ${element}`);
                         const replace = element + " ";
                         const replaced = data.replaceAll(replace, "*");
@@ -683,13 +683,13 @@ class GameLogic {
                     console.log(`[WS${this.wsNumber}] 353 BAN mode - Checking gang: "${element}"`);
                     
                     // Skip if this is bot's own gang
-                    if (this.botGangName && this.botGangName !== "no_gang" && element === this.botGangName) {
+                    if (this.botGangName && this.botGangName !== "no_gang" && element.toLowerCase() === this.botGangName.toLowerCase()) {
                         console.log(`[WS${this.wsNumber}] 353 BAN mode - Skipping bot's own gang: ${element}`);
                         this.addLog(this.wsNumber, `🤖 Skipping own gang: ${element}`);
                         return;
                     }
                     
-                    if (element && data.includes(element)) {
+                    if (element && data.toLowerCase().includes(element.toLowerCase())) {
                         console.log(`[WS${this.wsNumber}] 353 BAN mode - Found gang match: ${element}`);
                         const replace = element + " ";
                         const replaced = data.replaceAll(replace, "*");
@@ -846,16 +846,16 @@ class GameLogic {
                 
                 if (isKickMode) {
                     // KICK MODE: Use kblacklist and kgangblacklist
-                    // PERFORMANCE FIX: Cache split results
-                    const kblacklist = (this.config.kblacklist || "").toLowerCase().split("\n").filter(k => k.trim());
-                    const kgangblacklist = (this.config.kgangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+                    // PERFORMANCE FIX: Cache split results (preserve original case)
+                    const kblacklist = (this.config.kblacklist || "").split("\n").filter(k => k.trim());
+                    const kgangblacklist = (this.config.kgangblacklist || "").split("\n").filter(g => g.trim());
                     
                     console.log(`[WS${this.wsNumber}] 353 Kick mode - Kick Blacklist Users: [${kblacklist.join(', ')}]`);
                     console.log(`[WS${this.wsNumber}] 353 Kick mode - Kick Blacklist Clans: [${kgangblacklist.join(', ')}]`);
                     
                     // Process username blacklist
                     kblacklist.forEach((element) => {
-                        if (element && data.includes(element)) {
+                        if (element && data.toLowerCase().includes(element.toLowerCase())) {
                             const replace = element + " ";
                             const replaced = data.replaceAll(replace, "*");
                             const arr = replaced.split("*");
@@ -883,13 +883,13 @@ class GameLogic {
                         console.log(`[WS${this.wsNumber}] 353 Kick mode - Checking gang: "${element}"`);
                         
                         // Skip if this is bot's own gang
-                        if (this.botGangName && this.botGangName !== "no_gang" && element === this.botGangName) {
+                        if (this.botGangName && this.botGangName !== "no_gang" && element.toLowerCase() === this.botGangName.toLowerCase()) {
                             console.log(`[WS${this.wsNumber}] 353 Kick mode - Skipping bot's own gang: ${element}`);
                             this.addLog(this.wsNumber, `🤖 Skipping own gang: ${element}`);
                             return;
                         }
                         
-                        if (element && data.includes(element)) {
+                        if (element && data.toLowerCase().includes(element.toLowerCase())) {
                             console.log(`[WS${this.wsNumber}] 353 Kick mode - Found gang match: ${element}`);
                             const replace = element + " ";
                             const replaced = data.replaceAll(replace, "*");
@@ -923,16 +923,16 @@ class GameLogic {
                     });
                 } else {
                     // IMPRISON MODE: Use blacklist and gangblacklist
-                    // PERFORMANCE FIX: Cache split results
-                    const blacklist = (this.config.blacklist || "").toLowerCase().split("\n").filter(b => b.trim());
-                    const gangblacklist = (this.config.gangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+                    // PERFORMANCE FIX: Cache split results (preserve original case)
+                    const blacklist = (this.config.blacklist || "").split("\n").filter(b => b.trim());
+                    const gangblacklist = (this.config.gangblacklist || "").split("\n").filter(g => g.trim());
                     
                     console.log(`[WS${this.wsNumber}] 353 Imprison mode - Blacklist Users: [${blacklist.join(', ')}]`);
                     console.log(`[WS${this.wsNumber}] 353 Imprison mode - Blacklist Clans: [${gangblacklist.join(', ')}]`);
                     
                     // Process username blacklist
                     blacklist.forEach((element) => {
-                        if (element && data.includes(element)) {
+                        if (element && data.toLowerCase().includes(element.toLowerCase())) {
                             const replace = element + " ";
                             const replaced = data.replaceAll(replace, "*");
                             const arr = replaced.split("*");
@@ -960,13 +960,13 @@ class GameLogic {
                         console.log(`[WS${this.wsNumber}] 353 Imprison mode - Checking gang: "${element}"`);
                         
                         // Skip if this is bot's own gang
-                        if (this.botGangName && this.botGangName !== "no_gang" && element === this.botGangName) {
+                        if (this.botGangName && this.botGangName !== "no_gang" && element.toLowerCase() === this.botGangName.toLowerCase()) {
                             console.log(`[WS${this.wsNumber}] 353 Imprison mode - Skipping bot's own gang: ${element}`);
                             this.addLog(this.wsNumber, `🤖 Skipping own gang: ${element}`);
                             return;
                         }
                         
-                        if (element && data.includes(element)) {
+                        if (element && data.toLowerCase().includes(element.toLowerCase())) {
                             console.log(`[WS${this.wsNumber}] 353 Imprison mode - Found gang match: ${element}`);
                             const replace = element + " ";
                             const replaced = data.replaceAll(replace, "*");
@@ -1151,16 +1151,16 @@ class GameLogic {
             if (snippets[3] && snippets[3].slice(0, 6) === "Prison") return;
             
             const data = text.replaceAll("+", "").toLowerCase();
-            const blacklist = (this.config.blacklist || "").toLowerCase().split("\n").filter(b => b.trim());
-            const gangblacklist = (this.config.gangblacklist || "").toLowerCase().split("\n").filter(b => b.trim());
+            const blacklist = (this.config.blacklist || "").split("\n").filter(b => b.trim());
+            const gangblacklist = (this.config.gangblacklist || "").split("\n").filter(b => b.trim());
 
             const timing = this.getTiming("attack");
             const timingLabel = this.getTimingLabel("attack");
 
-            // Process username blacklist
+            // Process username blacklist (case insensitive)
             blacklist.forEach(element => {
-                if (element && data.includes(element)) {
-                    const replace = element + " ";
+                if (element && data.includes(element.toLowerCase())) {
+                    const replace = element.toLowerCase() + " ";
                     const replaced = data.replaceAll(replace, "*");
                     const arr = replaced.split("*");
                     arr.shift();
@@ -1182,10 +1182,10 @@ class GameLogic {
                 }
             });
 
-            // Process gang blacklist
+            // Process gang blacklist (case insensitive)
             gangblacklist.forEach(element => {
-                if (element && data.includes(element)) {
-                    const replace = element + " ";
+                if (element && data.includes(element.toLowerCase())) {
+                    const replace = element.toLowerCase() + " ";
                     const replaced = data.replaceAll(replace, "*");
                     const arr = replaced.split("*");
                     arr.shift();
@@ -1401,10 +1401,10 @@ class GameLogic {
             // Check "By Blacklist" mode
             if (!shouldAct && this.config.kickbybl) {
                 if (isKickMode) {
-                    // KICK MODE: Use kblacklist and kgangblacklist
-                    const kblacklist = (this.config.kblacklist || "").toLowerCase().split("\n").filter(k => k.trim());
+                    // KICK MODE: Use kblacklist and kgangblacklist (preserve original case)
+                    const kblacklist = (this.config.kblacklist || "").split("\n").filter(k => k.trim());
                     for (const blocked of kblacklist) {
-                        if (blocked && username.includes(blocked)) {
+                        if (blocked && username.toLowerCase().includes(blocked.toLowerCase())) {
                             shouldAct = true;
                             reason = `kblacklist: ${blocked}`;
                             break;
@@ -1412,10 +1412,10 @@ class GameLogic {
                     }
                     
                     if (!shouldAct) {
-                        const kgangblacklist = (this.config.kgangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+                        const kgangblacklist = (this.config.kgangblacklist || "").split("\n").filter(g => g.trim());
                         for (const gang of kgangblacklist) {
                             // IMPORTANT: Skip if this gang is bot's own gang
-                            if (this.botGangName && this.botGangName !== "no_gang" && gang === this.botGangName) {
+                            if (this.botGangName && this.botGangName !== "no_gang" && gang.toLowerCase() === this.botGangName.toLowerCase()) {
                                 console.log(`[WS${this.wsNumber}] JOIN Kick - Skipping bot's own gang in blacklist: ${gang}`);
                                 this.addLog(this.wsNumber, `🤖 Skipping own gang: ${gang}`);
                                 continue; // Skip to next gang in blacklist
@@ -1423,7 +1423,7 @@ class GameLogic {
                             
                             // Check if user belongs to this blacklisted gang
                             // User's gang is in the channel field
-                            if (gang && channel === gang) {
+                            if (gang && channel.toLowerCase() === gang.toLowerCase()) {
                                 console.log(`[WS${this.wsNumber}] JOIN Kick - User ${username} belongs to blacklisted gang: ${gang}`);
                                 shouldAct = true;
                                 reason = `kgangblacklist: ${gang}`;
@@ -1432,10 +1432,10 @@ class GameLogic {
                         }
                     }
                 } else {
-                    // IMPRISON MODE: Use blacklist and gangblacklist
-                    const blacklist = (this.config.blacklist || "").toLowerCase().split("\n").filter(b => b.trim());
+                    // IMPRISON MODE: Use blacklist and gangblacklist (preserve original case)
+                    const blacklist = (this.config.blacklist || "").split("\n").filter(b => b.trim());
                     for (const blocked of blacklist) {
-                        if (blocked && username.includes(blocked)) {
+                        if (blocked && username.toLowerCase().includes(blocked.toLowerCase())) {
                             shouldAct = true;
                             reason = `blacklist: ${blocked}`;
                             break;
@@ -1443,10 +1443,10 @@ class GameLogic {
                     }
                     
                     if (!shouldAct) {
-                        const gangblacklist = (this.config.gangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+                        const gangblacklist = (this.config.gangblacklist || "").split("\n").filter(g => g.trim());
                         for (const gang of gangblacklist) {
                             // IMPORTANT: Skip if this gang is bot's own gang
-                            if (this.botGangName && this.botGangName !== "no_gang" && gang === this.botGangName) {
+                            if (this.botGangName && this.botGangName !== "no_gang" && gang.toLowerCase() === this.botGangName.toLowerCase()) {
                                 console.log(`[WS${this.wsNumber}] JOIN Imprison - Skipping bot's own gang in blacklist: ${gang}`);
                                 this.addLog(this.wsNumber, `🤖 Skipping own gang: ${gang}`);
                                 continue; // Skip to next gang in blacklist
@@ -1454,7 +1454,7 @@ class GameLogic {
                             
                             // Check if user belongs to this blacklisted gang
                             // User's gang is in the channel field
-                            if (gang && channel === gang) {
+                            if (gang && channel.toLowerCase() === gang.toLowerCase()) {
                                 console.log(`[WS${this.wsNumber}] JOIN Imprison - User ${username} belongs to blacklisted gang: ${gang}`);
                                 shouldAct = true;
                                 reason = `gangblacklist: ${gang}`;
@@ -1621,11 +1621,11 @@ class GameLogic {
             
             // Check "By Blacklist" mode - Check ALL blacklists (kick + imprison)
             if (!shouldBan && this.config.kickbybl) {
-                // Load all four blacklist types
-                const kblacklist = (this.config.kblacklist || "").toLowerCase().split("\n").filter(k => k.trim());
-                const kgangblacklist = (this.config.kgangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
-                const blacklist = (this.config.blacklist || "").toLowerCase().split("\n").filter(b => b.trim());
-                const gangblacklist = (this.config.gangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+                // Load all four blacklist types (preserve original case)
+                const kblacklist = (this.config.kblacklist || "").split("\n").filter(k => k.trim());
+                const kgangblacklist = (this.config.kgangblacklist || "").split("\n").filter(g => g.trim());
+                const blacklist = (this.config.blacklist || "").split("\n").filter(b => b.trim());
+                const gangblacklist = (this.config.gangblacklist || "").split("\n").filter(g => g.trim());
                 
                 // Merge all username blacklists
                 const allUserBlacklists = [...kblacklist, ...blacklist];
@@ -1638,9 +1638,9 @@ class GameLogic {
                 console.log(`[WS${this.wsNumber}]   - Imprison Blacklist Users: [${blacklist.join(', ')}]`);
                 console.log(`[WS${this.wsNumber}]   - Imprison Blacklist Clans: [${gangblacklist.join(', ')}]`);
                 
-                // Check ALL username blacklists (kick + imprison)
+                // Check ALL username blacklists (kick + imprison) - case insensitive
                 for (const blocked of allUserBlacklists) {
-                    if (blocked && username.includes(blocked)) {
+                    if (blocked && username.toLowerCase().includes(blocked.toLowerCase())) {
                         shouldBan = true;
                         reason = `blacklist: ${blocked}`;
                         console.log(`[WS${this.wsNumber}] BAN mode - MATCH in blacklist: ${blocked}`);
@@ -1648,10 +1648,10 @@ class GameLogic {
                     }
                 }
                 
-                // Check ALL gang blacklists (kick + imprison)
+                // Check ALL gang blacklists (kick + imprison) - case insensitive
                 if (!shouldBan) {
                     for (const gang of allGangBlacklists) {
-                        if (gang && username.includes(gang)) {
+                        if (gang && username.toLowerCase().includes(gang.toLowerCase())) {
                             shouldBan = true;
                             reason = `gangblacklist: ${gang}`;
                             console.log(`[WS${this.wsNumber}] BAN mode - MATCH in gangblacklist: ${gang}`);
@@ -1698,18 +1698,18 @@ class GameLogic {
         if (!this.config.exitting) return;
 
         const data = text.toLowerCase();
-        const whitelist = (this.config.blacklist || "").toLowerCase().split("\n").filter(w => w.trim());
-        const gangwhitelist = (this.config.gangblacklist || "").toLowerCase().split("\n").filter(g => g.trim());
+        const whitelist = (this.config.blacklist || "").split("\n").filter(w => w.trim());
+        const gangwhitelist = (this.config.gangblacklist || "").split("\n").filter(g => g.trim());
 
         let isWhitelisted = false;
         for (const element of whitelist) {
-            if (element && data.includes(element)) {
+            if (element && data.includes(element.toLowerCase())) {
                 isWhitelisted = true;
                 break;
             }
         }
         for (const element of gangwhitelist) {
-            if (element && data.includes(element)) {
+            if (element && data.includes(element.toLowerCase())) {
                 isWhitelisted = true;
                 break;
             }
